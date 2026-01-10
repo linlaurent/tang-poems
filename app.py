@@ -6,7 +6,9 @@ from src.quiz import initialize_quiz_session, get_next_question, check_answer
 from src.flashcards import (
     initialize_flashcard_session, get_current_flashcard,
     next_flashcard, previous_flashcard, mark_as_known, mark_for_practice,
-    reveal_content, get_progress_stats
+    reveal_content, get_progress_stats, apply_filter, jump_to_next_practice,
+    jump_to_next_unknown, reset_progress, get_current_poem_status, get_filtered_indices,
+    save_progress
 )
 
 # Page configuration
@@ -239,12 +241,29 @@ def flashcard_mode():
     # Initialize flashcard session
     if 'flashcard_state' not in st.session_state:
         st.session_state.flashcard_state = initialize_flashcard_session(poems)
+        # Initialize filtered indices
+        st.session_state.flashcard_state = apply_filter(st.session_state.flashcard_state)
+        
+        # Show message if progress was loaded
+        if 'last_saved' in st.session_state.flashcard_state:
+            last_saved = st.session_state.flashcard_state['last_saved']
+            if last_saved:
+                try:
+                    # Parse and format the timestamp
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(last_saved)
+                    formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+                    st.success(f"✅ 已恢复之前的进度 (最后保存: {formatted_time})")
+                except:
+                    st.success("✅ 已恢复之前的进度")
     
     flashcard_state = st.session_state.flashcard_state
     
     # Progress stats
     stats = get_progress_stats(flashcard_state)
-    col1, col2, col3, col4 = st.columns(4)
+    
+    # Main stats row
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("总数", stats['total'])
     with col2:
@@ -253,16 +272,108 @@ def flashcard_mode():
         st.metric("需练习", stats['practice'])
     with col4:
         st.metric("未学习", stats['remaining'])
+    with col5:
+        st.metric("本次学习", stats.get('study_count', 0))
+    
+    # Progress bar
+    if stats['total'] > 0:
+        progress_pct = stats['known_percentage'] / 100
+        st.progress(progress_pct, text=f"学习进度: {stats['known']}/{stats['total']} ({stats['known_percentage']:.1f}%)")
+    
+    # Filter and options
+    st.divider()
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        filter_mode = st.selectbox(
+            "筛选模式",
+            ['all', 'practice', 'unknown', 'known'],
+            format_func=lambda x: {
+                'all': '全部',
+                'practice': '需练习',
+                'unknown': '未学习',
+                'known': '已掌握'
+            }[x],
+            index=['all', 'practice', 'unknown', 'known'].index(flashcard_state.get('filter_mode', 'all'))
+        )
+        if filter_mode != flashcard_state.get('filter_mode'):
+            flashcard_state['filter_mode'] = filter_mode
+            flashcard_state = apply_filter(flashcard_state)
+            st.session_state.flashcard_state = flashcard_state
+            st.rerun()
+    
+    with col2:
+        shuffle = st.checkbox("随机顺序", value=flashcard_state.get('shuffle', False))
+        if shuffle != flashcard_state.get('shuffle'):
+            flashcard_state['shuffle'] = shuffle
+            flashcard_state = apply_filter(flashcard_state)
+            st.session_state.flashcard_state = flashcard_state
+            st.rerun()
+    
+    with col3:
+        if st.button("📋 跳到下一首需练习", use_container_width=True):
+            flashcard_state = jump_to_next_practice(flashcard_state)
+            st.session_state.flashcard_state = flashcard_state
+            st.rerun()
+    
+    with col4:
+        if st.button("💾 手动保存", use_container_width=True):
+            from src.flashcards import save_progress
+            if save_progress(flashcard_state):
+                st.success("✅ 进度已保存")
+            else:
+                st.error("❌ 保存失败")
+    
+    # Reset progress button
+    col_reset = st.columns([1])[0]
+    with col_reset:
+        if st.button("🔄 重置所有进度", use_container_width=True, type="secondary"):
+            if st.session_state.get('confirm_reset', False):
+                flashcard_state = reset_progress(flashcard_state)
+                flashcard_state = apply_filter(flashcard_state)
+                st.session_state.flashcard_state = flashcard_state
+                st.session_state.confirm_reset = False
+                st.success("✅ 进度已重置")
+                st.rerun()
+            else:
+                st.session_state.confirm_reset = True
+                st.warning("⚠️ 再次点击确认重置所有进度（这将删除保存的进度文件）")
+    
+    if st.session_state.get('confirm_reset', False):
+        st.info("⚠️ 点击上方的'重置所有进度'按钮以确认重置")
     
     st.divider()
     
+    # Show filtered count
+    filtered_indices = flashcard_state.get('filtered_indices', [])
+    if flashcard_state.get('filter_mode', 'all') != 'all':
+        st.info(f"📋 当前筛选：显示 {len(filtered_indices)} 首诗歌")
+    
     # Current flashcard
     current_poem = get_current_flashcard(flashcard_state)
+    current_status = get_current_poem_status(flashcard_state)
     
     if current_poem:
+        # Status indicator
+        status_colors = {
+            'known': '#4CAF50',
+            'practice': '#FF9800',
+            'unknown': '#9E9E9E'
+        }
+        status_texts = {
+            'known': '✅ 已掌握',
+            'practice': '📝 需练习',
+            'unknown': '❓ 未学习'
+        }
+        status_color = status_colors.get(current_status, '#9E9E9E')
+        status_text = status_texts.get(current_status, '❓ 未学习')
+        
         # Flashcard front (title and author)
         st.markdown(f"""
-        <div class="flashcard-front">
+        <div class="flashcard-front" style="border-left: 5px solid {status_color};">
+            <div style="text-align: right; font-size: 0.9rem; opacity: 0.9; margin-bottom: 0.5rem;">
+                {status_text}
+            </div>
             <h2>{current_poem['title']}</h2>
             <p style="font-size: 1.2rem; margin-top: 1rem;">作者：{current_poem['author']}</p>
         </div>
@@ -299,19 +410,43 @@ def flashcard_mode():
                     st.rerun()
         
         # Navigation
-        col1, col2, col3 = st.columns([1, 1, 1])
+        filtered_indices = flashcard_state.get('filtered_indices', list(range(len(poems))))
+        if filtered_indices:
+            try:
+                current_pos = filtered_indices.index(flashcard_state['current_index']) + 1
+                total_filtered = len(filtered_indices)
+            except ValueError:
+                current_pos = 1
+                total_filtered = len(filtered_indices)
+        else:
+            current_pos = 0
+            total_filtered = 0
+        
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
         with col1:
-            if st.button("◀ 上一张", use_container_width=True):
+            if st.button("◀ 上一张", use_container_width=True, disabled=(not filtered_indices)):
                 flashcard_state = previous_flashcard(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
         
         with col2:
-            st.write(f"**{flashcard_state['current_index'] + 1} / {len(poems)}**")
+            if filtered_indices:
+                st.write(f"**{current_pos} / {total_filtered}**")
+                if flashcard_state.get('filter_mode', 'all') != 'all':
+                    st.caption(f"(总第 {flashcard_state['current_index'] + 1} 首)")
+            else:
+                st.write("**0 / 0**")
+                st.warning("当前筛选模式下无诗歌")
         
         with col3:
-            if st.button("下一张 ▶", use_container_width=True):
+            if st.button("下一张 ▶", use_container_width=True, disabled=(not filtered_indices)):
                 flashcard_state = next_flashcard(flashcard_state)
+                st.session_state.flashcard_state = flashcard_state
+                st.rerun()
+        
+        with col4:
+            if st.button("🔍 跳到下一首未学习", use_container_width=True):
+                flashcard_state = jump_to_next_unknown(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
 

@@ -170,3 +170,6 @@ Thumbs.db
 # data/*.csv
 # data/*.xlsx
 
+# User progress files (user-specific, should not be committed)
+data/flashcard_progress.json
+
