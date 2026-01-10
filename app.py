@@ -17,7 +17,6 @@ from src.flashcards import (
     get_progress_stats,
     import_progress_data,
     initialize_flashcard_session,
-    jump_to_next_practice,
     jump_to_next_unknown,
     jump_to_poem,
     mark_as_known,
@@ -79,6 +78,40 @@ st.markdown(
         color: white;
         border-radius: 15px;
         margin: 1rem 0;
+    }
+    .multi-progress-bar {
+        width: 100%;
+        height: 30px;
+        background-color: #e0e0e0;
+        border-radius: 15px;
+        overflow: hidden;
+        margin: 0.5rem 0;
+        position: relative;
+        display: flex;
+        flex-direction: row;
+    }
+    .progress-segment-known {
+        height: 100%;
+        background-color: #4CAF50;
+        transition: width 0.3s ease;
+        min-width: 0;
+    }
+    .progress-segment-practice {
+        height: 100%;
+        background-color: #FF9800;
+        transition: width 0.3s ease;
+        min-width: 0;
+    }
+    .progress-segment-unknown {
+        height: 100%;
+        background-color: #e0e0e0;
+        min-width: 0;
+    }
+    .progress-text {
+        text-align: center;
+        margin-top: 0.5rem;
+        font-size: 0.9rem;
+        color: #666;
     }
 </style>
 """,
@@ -184,7 +217,7 @@ def display_mode():
     for i in range(start_idx, end_idx):
         poem = filtered_poems[i]
         with st.container():
-            author_dynasty = f'作者：{poem["author"]} | 朝代：{poem["dynasty"]}'
+            author_dynasty = f"作者：{poem['author']} | 朝代：{poem['dynasty']}"
             st.markdown(
                 f"""
             <div class="poem-card">
@@ -384,16 +417,50 @@ def flashcard_mode():
     with col5:
         st.metric("本次学习", stats.get("study_count", 0))
 
-    # Progress bar
+    # Progress bar with known and practice segments
     if stats["total"] > 0:
-        progress_pct = stats["known_percentage"] / 100
-        progress_text = (
-            f"学习进度: {stats['known']}/{stats['total']} "
-            f"({stats['known_percentage']:.1f}%) | 需练习: "
-            f"{stats['practice']}/{stats['total']} "
-            f"({stats['practice_percentage']:.1f}%)"
+        known_pct = stats["known_percentage"]
+        practice_pct = stats["practice_percentage"]
+        unknown_pct = 100 - known_pct - practice_pct
+
+        # Create custom multi-segment progress bar
+        known_title = f"已掌握: {stats['known']}首"
+        practice_title = f"需练习: {stats['practice']}首"
+        unknown_title = f"未学习: {stats['remaining']}首"
+
+        known_text = (
+            f"<span style='color: #4CAF50;'>●</span> "
+            f"已掌握 {stats['known']}/{stats['total']} "
+            f"({known_pct:.1f}%)"
         )
-        st.progress(progress_pct, text=progress_text)
+        practice_text = (
+            f"<span style='color: #FF9800;'>●</span> "
+            f"需练习 {stats['practice']}/{stats['total']} "
+            f"({practice_pct:.1f}%)"
+        )
+        unknown_text = (
+            f"<span style='color: #9E9E9E;'>●</span> "
+            f"未学习 {stats['remaining']}/{stats['total']} "
+            f"({unknown_pct:.1f}%)"
+        )
+
+        progress_bar_html = f"""
+        <div class="multi-progress-bar">
+            <div class="progress-segment-known"
+                 style="width: {known_pct}%;"
+                 title="{known_title}"></div>
+            <div class="progress-segment-practice"
+                 style="width: {practice_pct}%;"
+                 title="{practice_title}"></div>
+            <div class="progress-segment-unknown"
+                 style="width: {unknown_pct}%;"
+                 title="{unknown_title}"></div>
+        </div>
+        <div class="progress-text">
+            学习进度: {known_text} | {practice_text} | {unknown_text}
+        </div>
+        """
+        st.markdown(progress_bar_html, unsafe_allow_html=True)
 
     # Filter and options
     st.divider()
@@ -403,40 +470,24 @@ def flashcard_mode():
         flashcard_state = apply_filter(flashcard_state)
         st.session_state.flashcard_state = flashcard_state
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        filter_mode = st.selectbox(
-            "筛选模式",
-            ["all", "practice", "unknown", "known"],
-            format_func=lambda x: {
-                "all": "全部",
-                "practice": "需练习",
-                "unknown": "未学习",
-                "known": "已掌握",
-            }[x],
-            index=["all", "practice", "unknown", "known"].index(
-                flashcard_state.get("filter_mode", "all")
-            ),
-        )
-        if filter_mode != flashcard_state.get("filter_mode"):
-            flashcard_state["filter_mode"] = filter_mode
-            flashcard_state = apply_filter(flashcard_state)
-            st.session_state.flashcard_state = flashcard_state
-            st.rerun()
-
-    with col2:
-        if st.button("📋 跳到下一首需练习", use_container_width=True):
-            flashcard_state = jump_to_next_practice(flashcard_state)
-            st.session_state.flashcard_state = flashcard_state
-            st.rerun()
-
-    with col3:
-        if st.button("💾 手动保存", use_container_width=True):
-            if save_progress(flashcard_state):
-                st.success("✅ 进度已保存")
-            else:
-                st.error("❌ 保存失败")
+    filter_mode = st.selectbox(
+        "筛选模式",
+        ["all", "practice", "unknown", "known"],
+        format_func=lambda x: {
+            "all": "全部",
+            "practice": "需练习",
+            "unknown": "未学习",
+            "known": "已掌握",
+        }[x],
+        index=["all", "practice", "unknown", "known"].index(
+            flashcard_state.get("filter_mode", "all")
+        ),
+    )
+    if filter_mode != flashcard_state.get("filter_mode"):
+        flashcard_state["filter_mode"] = filter_mode
+        flashcard_state = apply_filter(flashcard_state)
+        st.session_state.flashcard_state = flashcard_state
+        st.rerun()
 
     st.divider()
 
@@ -632,8 +683,7 @@ def flashcard_mode():
 
         # Flashcard front (title and author)
         status_div_style = (
-            "text-align: right; font-size: 0.9rem; "
-            "opacity: 0.9; margin-bottom: 0.5rem;"
+            "text-align: right; font-size: 0.9rem; opacity: 0.9; margin-bottom: 0.5rem;"
         )
         author_style = "font-size: 1.2rem; margin-top: 1rem;"
         st.markdown(
