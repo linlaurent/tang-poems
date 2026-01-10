@@ -1,0 +1,11 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version. Use the sha / tag you want to point at.
+    rev: v0.5.6
+    hooks:
+      # Run the linter with auto-fix.
+      # The hook will fail if fixes were applied, requiring you to stage and recommit
+      - id: ruff
+        args: [--fix]
+      # Run the formatter.
+      - id: ruff-format
