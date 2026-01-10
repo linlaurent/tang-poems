@@ -1,33 +1,34 @@
 """Main Streamlit application for learning 300 Tang Poems."""
 
-import streamlit as st
 import json
 from datetime import datetime
+
+import streamlit as st
+from pypinyin import lazy_pinyin
+
 from src.data_loader import load_poems, search_poems
-from src.quiz import initialize_quiz_session, get_next_question, check_answer
 from src.flashcards import (
-    initialize_flashcard_session,
-    get_current_flashcard,
-    next_flashcard,
-    previous_flashcard,
-    mark_as_known,
-    mark_for_practice,
-    reveal_content,
-    get_progress_stats,
     apply_filter,
+    export_progress_data,
+    get_all_authors,
+    get_current_flashcard,
+    get_current_poem_status,
+    get_poems_by_author,
+    get_progress_stats,
+    import_progress_data,
+    initialize_flashcard_session,
     jump_to_next_practice,
     jump_to_next_unknown,
-    reset_progress,
-    get_current_poem_status,
-    get_filtered_indices,
-    save_progress,
     jump_to_poem,
-    get_all_authors,
-    get_poems_by_author,
-    export_progress_data,
-    import_progress_data,
+    mark_as_known,
+    mark_for_practice,
+    next_flashcard,
+    previous_flashcard,
+    reset_progress,
+    reveal_content,
+    save_progress,
 )
-from pypinyin import lazy_pinyin
+from src.quiz import check_answer, get_next_question, initialize_quiz_session
 
 # Page configuration
 st.set_page_config(
@@ -107,7 +108,7 @@ def get_user_id() -> str:
             if user_email:
                 st.session_state.user_id = user_email
                 return user_email
-    except:
+    except Exception:
         pass
 
     # If no user email available and no username set, return guest
@@ -183,11 +184,12 @@ def display_mode():
     for i in range(start_idx, end_idx):
         poem = filtered_poems[i]
         with st.container():
+            author_dynasty = f'作者：{poem["author"]} | 朝代：{poem["dynasty"]}'
             st.markdown(
                 f"""
             <div class="poem-card">
                 <div class="poem-title">{poem["title"]}</div>
-                <div class="poem-author">作者：{poem["author"]} | 朝代：{poem["dynasty"]}</div>
+                <div class="poem-author">{author_dynasty}</div>
                 <div class="poem-content">{poem["content"]}</div>
             </div>
             """,
@@ -361,7 +363,7 @@ def flashcard_mode():
                     dt = datetime.fromisoformat(last_saved)
                     formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
                     st.success(f"✅ 已恢复之前的进度 (最后保存: {formatted_time})")
-                except:
+                except Exception:
                     st.success("✅ 已恢复之前的进度")
 
     flashcard_state = st.session_state.flashcard_state
@@ -385,14 +387,23 @@ def flashcard_mode():
     # Progress bar
     if stats["total"] > 0:
         progress_pct = stats["known_percentage"] / 100
-        st.progress(
-            progress_pct,
-            text=f"学习进度: {stats['known']}/{stats['total']} ({stats['known_percentage']:.1f}%) | 需练习: {stats['practice']}/{stats['total']} ({stats['practice_percentage']:.1f}%)",
+        progress_text = (
+            f"学习进度: {stats['known']}/{stats['total']} "
+            f"({stats['known_percentage']:.1f}%) | 需练习: "
+            f"{stats['practice']}/{stats['total']} "
+            f"({stats['practice_percentage']:.1f}%)"
         )
+        st.progress(progress_pct, text=progress_text)
 
     # Filter and options
     st.divider()
-    col1, col2, col3, col4 = st.columns(4)
+    # Ensure shuffle is always enabled
+    if not flashcard_state.get("shuffle", True):
+        flashcard_state["shuffle"] = True
+        flashcard_state = apply_filter(flashcard_state)
+        st.session_state.flashcard_state = flashcard_state
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         filter_mode = st.selectbox(
@@ -415,20 +426,12 @@ def flashcard_mode():
             st.rerun()
 
     with col2:
-        shuffle = st.checkbox("随机顺序", value=flashcard_state.get("shuffle", False))
-        if shuffle != flashcard_state.get("shuffle"):
-            flashcard_state["shuffle"] = shuffle
-            flashcard_state = apply_filter(flashcard_state)
-            st.session_state.flashcard_state = flashcard_state
-            st.rerun()
-
-    with col3:
         if st.button("📋 跳到下一首需练习", use_container_width=True):
             flashcard_state = jump_to_next_practice(flashcard_state)
             st.session_state.flashcard_state = flashcard_state
             st.rerun()
 
-    with col4:
+    with col3:
         if st.button("💾 手动保存", use_container_width=True):
             if save_progress(flashcard_state):
                 st.success("✅ 进度已保存")
@@ -628,14 +631,19 @@ def flashcard_mode():
         status_text = status_texts.get(current_status, "❓ 未学习")
 
         # Flashcard front (title and author)
+        status_div_style = (
+            "text-align: right; font-size: 0.9rem; "
+            "opacity: 0.9; margin-bottom: 0.5rem;"
+        )
+        author_style = "font-size: 1.2rem; margin-top: 1rem;"
         st.markdown(
             f"""
         <div class="flashcard-front" style="border-left: 5px solid {status_color};">
-            <div style="text-align: right; font-size: 0.9rem; opacity: 0.9; margin-bottom: 0.5rem;">
+            <div style="{status_div_style}">
                 {status_text}
             </div>
             <h2>{current_poem["title"]}</h2>
-            <p style="font-size: 1.2rem; margin-top: 1rem;">作者：{current_poem["author"]}</p>
+            <p style="{author_style}">作者：{current_poem["author"]}</p>
         </div>
         """,
             unsafe_allow_html=True,
@@ -748,7 +756,8 @@ def flashcard_mode():
         safe_user_id = "".join(
             c if c.isalnum() or c in ("-", "_", "@", ".") else "_" for c in user_id
         )
-        filename = f"flashcard_progress_{safe_user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"flashcard_progress_{safe_user_id}_{timestamp}.json"
         st.download_button(
             label="📥 导出进度",
             data=export_json,

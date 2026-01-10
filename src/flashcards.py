@@ -1,10 +1,11 @@
 """Flashcard mode logic for Tang poems learning."""
 
-from typing import List, Dict, Optional
-import random
 import json
-from pathlib import Path
+import random
 from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
 from pypinyin import lazy_pinyin
 
 
@@ -47,7 +48,7 @@ def get_progress_file_path(user_id: str) -> Path:
     return user_dir / f"flashcard_progress_{safe_user_id}.json"
 
 
-def load_progress(user_id: str) -> Optional[Dict]:
+def load_progress(user_id: str) -> Optional[dict]:
     """
     Load flashcard progress from file for a specific user.
     Returns None if file doesn't exist or is invalid.
@@ -62,7 +63,7 @@ def load_progress(user_id: str) -> Optional[Dict]:
         return None
 
     try:
-        with open(progress_file, "r", encoding="utf-8") as f:
+        with open(progress_file, encoding="utf-8") as f:
             data = json.load(f)
 
         # Convert lists back to sets
@@ -77,7 +78,7 @@ def load_progress(user_id: str) -> Optional[Dict]:
         return None
 
 
-def save_progress(flashcard_state: Dict, user_id: Optional[str] = None) -> bool:
+def save_progress(flashcard_state: dict, user_id: Optional[str] = None) -> bool:
     """
     Save flashcard progress to file for a specific user.
     Only saves persistent data (known_poems, practice_poems, current_index).
@@ -111,7 +112,7 @@ def save_progress(flashcard_state: Dict, user_id: Optional[str] = None) -> bool:
         return False
 
 
-def export_progress_data(flashcard_state: Dict) -> Dict:
+def export_progress_data(flashcard_state: dict) -> dict:
     """
     Export flashcard progress data to a dictionary format for download.
     Returns a dictionary with all progress data.
@@ -119,8 +120,8 @@ def export_progress_data(flashcard_state: Dict) -> Dict:
     export_data = {
         "version": "1.0",
         "exported_at": datetime.now().isoformat(),
-        "known_poems": sorted(list(flashcard_state.get("known_poems", set()))),
-        "practice_poems": sorted(list(flashcard_state.get("practice_poems", set()))),
+        "known_poems": sorted(flashcard_state.get("known_poems", set())),
+        "practice_poems": sorted(flashcard_state.get("practice_poems", set())),
         "current_index": flashcard_state.get("current_index", 0),
         "total_poems": len(flashcard_state.get("poems", [])),
     }
@@ -128,78 +129,8 @@ def export_progress_data(flashcard_state: Dict) -> Dict:
 
 
 def import_progress_data(
-    flashcard_state: Dict, import_data: Dict, poems: List[Dict]
-) -> Dict:
-    """
-    Import flashcard progress data from a dictionary.
-    Validates and imports known_poems, practice_poems, and current_index.
-    Returns updated flashcard_state.
-    """
-    total_poems = len(poems)
-
-    # Validate and import known_poems
-    if "known_poems" in import_data:
-        known_list = import_data["known_poems"]
-        if isinstance(known_list, list):
-            # Filter valid indices
-            valid_known = {
-                idx
-                for idx in known_list
-                if isinstance(idx, int) and 0 <= idx < total_poems
-            }
-            flashcard_state["known_poems"] = valid_known
-
-    # Validate and import practice_poems
-    if "practice_poems" in import_data:
-        practice_list = import_data["practice_poems"]
-        if isinstance(practice_list, list):
-            # Filter valid indices
-            valid_practice = {
-                idx
-                for idx in practice_list
-                if isinstance(idx, int) and 0 <= idx < total_poems
-            }
-            flashcard_state["practice_poems"] = valid_practice
-
-    # Validate and import current_index
-    if "current_index" in import_data:
-        current_idx = import_data["current_index"]
-        if isinstance(current_idx, int) and 0 <= current_idx < total_poems:
-            flashcard_state["current_index"] = current_idx
-
-    # Remove poems from known if they're in practice and vice versa
-    flashcard_state["known_poems"] = flashcard_state.get(
-        "known_poems", set()
-    ) - flashcard_state.get("practice_poems", set())
-    flashcard_state["practice_poems"] = flashcard_state.get(
-        "practice_poems", set()
-    ) - flashcard_state.get("known_poems", set())
-
-    # Reset revealed state
-    flashcard_state["revealed"] = False
-
-    return flashcard_state
-
-
-def export_progress_data(flashcard_state: Dict) -> Dict:
-    """
-    Export flashcard progress data to a dictionary format for download.
-    Returns a dictionary with all progress data.
-    """
-    export_data = {
-        "version": "1.0",
-        "exported_at": datetime.now().isoformat(),
-        "known_poems": sorted(list(flashcard_state.get("known_poems", set()))),
-        "practice_poems": sorted(list(flashcard_state.get("practice_poems", set()))),
-        "current_index": flashcard_state.get("current_index", 0),
-        "total_poems": len(flashcard_state.get("poems", [])),
-    }
-    return export_data
-
-
-def import_progress_data(
-    flashcard_state: Dict, import_data: Dict, poems: List[Dict]
-) -> Dict:
+    flashcard_state: dict, import_data: dict, poems: list[dict]
+) -> dict:
     """
     Import flashcard progress data from a dictionary.
     Validates and imports known_poems, practice_poems, and current_index.
@@ -251,7 +182,7 @@ def import_progress_data(
 
 
 def delete_progress_file(
-    user_id: Optional[str] = None, flashcard_state: Optional[Dict] = None
+    user_id: Optional[str] = None, flashcard_state: Optional[dict] = None
 ) -> bool:
     """Delete the progress file for a specific user. Returns True if successful."""
     # Get user_id from flashcard_state if provided, otherwise use parameter
@@ -272,7 +203,7 @@ def delete_progress_file(
         return False
 
 
-def initialize_flashcard_session(poems: List[Dict], user_id: str) -> Dict:
+def initialize_flashcard_session(poems: list[dict], user_id: str) -> dict:
     """
     Initialize flashcard session state for a specific user.
     Loads progress from file if it exists.
@@ -289,7 +220,7 @@ def initialize_flashcard_session(poems: List[Dict], user_id: str) -> Dict:
         "practice_poems": set(),
         "revealed": False,
         "filter_mode": "all",
-        "shuffle": False,
+        "shuffle": True,  # Enabled by default
         "filtered_indices": list(range(len(poems))),
         "study_count": 0,
         "user_id": user_id,  # Store user_id in state
@@ -314,7 +245,7 @@ def initialize_flashcard_session(poems: List[Dict], user_id: str) -> Dict:
     return state
 
 
-def get_current_flashcard(flashcard_state: Dict) -> Optional[Dict]:
+def get_current_flashcard(flashcard_state: dict) -> Optional[dict]:
     """
     Get the current flashcard poem.
     """
@@ -323,7 +254,7 @@ def get_current_flashcard(flashcard_state: Dict) -> Optional[Dict]:
     return None
 
 
-def mark_as_known(flashcard_state: Dict, save: bool = True) -> Dict:
+def mark_as_known(flashcard_state: dict, save: bool = True) -> dict:
     """
     Mark current poem as known.
     Automatically saves progress unless save=False.
@@ -340,7 +271,7 @@ def mark_as_known(flashcard_state: Dict, save: bool = True) -> Dict:
     return flashcard_state
 
 
-def mark_for_practice(flashcard_state: Dict, save: bool = True) -> Dict:
+def mark_for_practice(flashcard_state: dict, save: bool = True) -> dict:
     """
     Mark current poem as needing practice.
     Automatically saves progress unless save=False.
@@ -357,7 +288,7 @@ def mark_for_practice(flashcard_state: Dict, save: bool = True) -> Dict:
     return flashcard_state
 
 
-def next_flashcard(flashcard_state: Dict, save: bool = True) -> Dict:
+def next_flashcard(flashcard_state: dict, save: bool = True) -> dict:
     """
     Move to next flashcard.
     Respects filter mode if active.
@@ -389,7 +320,7 @@ def next_flashcard(flashcard_state: Dict, save: bool = True) -> Dict:
     return flashcard_state
 
 
-def previous_flashcard(flashcard_state: Dict, save: bool = True) -> Dict:
+def previous_flashcard(flashcard_state: dict, save: bool = True) -> dict:
     """
     Move to previous flashcard.
     Respects filter mode if active.
@@ -421,7 +352,7 @@ def previous_flashcard(flashcard_state: Dict, save: bool = True) -> Dict:
     return flashcard_state
 
 
-def reveal_content(flashcard_state: Dict) -> Dict:
+def reveal_content(flashcard_state: dict) -> dict:
     """
     Reveal the poem content.
     """
@@ -429,7 +360,7 @@ def reveal_content(flashcard_state: Dict) -> Dict:
     return flashcard_state
 
 
-def get_progress_stats(flashcard_state: Dict) -> Dict:
+def get_progress_stats(flashcard_state: dict) -> dict:
     """
     Get progress statistics.
     """
@@ -449,7 +380,7 @@ def get_progress_stats(flashcard_state: Dict) -> Dict:
     }
 
 
-def get_filtered_indices(flashcard_state: Dict) -> List[int]:
+def get_filtered_indices(flashcard_state: dict) -> list[int]:
     """
     Get list of poem indices based on current filter mode.
     """
@@ -477,7 +408,7 @@ def get_filtered_indices(flashcard_state: Dict) -> List[int]:
     return indices
 
 
-def apply_filter(flashcard_state: Dict, save: bool = True) -> Dict:
+def apply_filter(flashcard_state: dict, save: bool = True) -> dict:
     """
     Apply filter and update filtered_indices.
     If save is True, saves current state to file.
@@ -501,7 +432,7 @@ def apply_filter(flashcard_state: Dict, save: bool = True) -> Dict:
     return flashcard_state
 
 
-def jump_to_next_practice(flashcard_state: Dict, save: bool = True) -> Dict:
+def jump_to_next_practice(flashcard_state: dict, save: bool = True) -> dict:
     """
     Jump to next poem that needs practice.
     If save is True, automatically saves progress to file.
@@ -533,7 +464,7 @@ def jump_to_next_practice(flashcard_state: Dict, save: bool = True) -> Dict:
     return flashcard_state
 
 
-def jump_to_next_unknown(flashcard_state: Dict, save: bool = True) -> Dict:
+def jump_to_next_unknown(flashcard_state: dict, save: bool = True) -> dict:
     """
     Jump to next unknown poem.
     If save is True, automatically saves progress to file.
@@ -569,7 +500,7 @@ def jump_to_next_unknown(flashcard_state: Dict, save: bool = True) -> Dict:
     return flashcard_state
 
 
-def reset_progress(flashcard_state: Dict) -> Dict:
+def reset_progress(flashcard_state: dict) -> dict:
     """
     Reset all progress (clear known and practice sets).
     Also deletes the progress file for this user.
@@ -582,7 +513,7 @@ def reset_progress(flashcard_state: Dict) -> Dict:
     return flashcard_state
 
 
-def get_current_poem_status(flashcard_state: Dict) -> str:
+def get_current_poem_status(flashcard_state: dict) -> str:
     """
     Get status of current poem: 'known', 'practice', or 'unknown'.
     """
@@ -595,7 +526,7 @@ def get_current_poem_status(flashcard_state: Dict) -> str:
         return "unknown"
 
 
-def jump_to_poem(flashcard_state: Dict, poem_index: int, save: bool = True) -> Dict:
+def jump_to_poem(flashcard_state: dict, poem_index: int, save: bool = True) -> dict:
     """
     Jump to a specific poem by index.
     If save is True, automatically saves progress to file.
@@ -611,7 +542,7 @@ def jump_to_poem(flashcard_state: Dict, poem_index: int, save: bool = True) -> D
     return flashcard_state
 
 
-def get_all_authors(poems: List[Dict]) -> List[str]:
+def get_all_authors(poems: list[dict]) -> list[str]:
     """
     Get list of all unique authors from poems, sorted by pinyin.
     """
@@ -626,7 +557,7 @@ def get_all_authors(poems: List[Dict]) -> List[str]:
     return authors_list
 
 
-def get_poems_by_author(poems: List[Dict], author: str) -> List[int]:
+def get_poems_by_author(poems: list[dict], author: str) -> list[int]:
     """
     Get list of poem indices for a specific author, sorted by poem title pinyin.
     """
