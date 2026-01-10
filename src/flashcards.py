@@ -219,7 +219,7 @@ def initialize_flashcard_session(poems: list[dict], user_id: str) -> dict:
         "known_poems": set(),
         "practice_poems": set(),
         "revealed": False,
-        "filter_mode": "practice",
+        "filter_mode": "all",
         "shuffle": True,  # Enabled by default
         "filtered_indices": list(range(len(poems))),
         "study_count": 0,
@@ -384,7 +384,7 @@ def get_filtered_indices(flashcard_state: dict) -> list[int]:
     """
     Get list of poem indices based on current filter mode.
     """
-    filter_mode = flashcard_state.get("filter_mode", "practice")
+    filter_mode = flashcard_state.get("filter_mode", "all")
     known = flashcard_state.get("known_poems", set())
     practice = flashcard_state.get("practice_poems", set())
     total = len(flashcard_state["poems"])

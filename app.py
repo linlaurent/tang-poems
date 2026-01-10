@@ -473,7 +473,7 @@ def flashcard_mode():
     # Navigation controls: Filter mode, Author dropdown, Poem dropdown, and Search
     st.subheader("🔍 快速导航")
 
-    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns(4)
+    nav_col1, nav_col2 = st.columns([1, 3])
 
     with nav_col1:
         # Filter mode
@@ -488,7 +488,7 @@ def flashcard_mode():
                 "known": "已掌握",
             }[x],
             index=["all", "practice", "unknown", "known"].index(
-                flashcard_state.get("filter_mode", "practice")
+                flashcard_state.get("filter_mode", "all")
             ),
             label_visibility="collapsed",
             key="filter_mode_select",
@@ -500,98 +500,6 @@ def flashcard_mode():
             st.rerun()
 
     with nav_col2:
-        # Author dropdown
-        all_authors = get_all_authors(poems)
-        current_poem = get_current_flashcard(flashcard_state)
-        current_author = current_poem.get("author", "未知") if current_poem else "未知"
-
-        # Determine default index for author dropdown
-        author_default_idx = 0
-        if current_author in all_authors:
-            author_default_idx = all_authors.index(current_author) + 1
-
-        selected_author = st.selectbox(
-            "按作者选择",
-            ["全部"] + all_authors,
-            index=author_default_idx,
-            key="author_select_flashcard",
-        )
-
-        if selected_author != "全部":
-            # Get poems by this author
-            author_poems_indices = get_poems_by_author(poems, selected_author)
-            if author_poems_indices:
-                # Create options with titles (no ID)
-                author_poem_options = [
-                    poems[idx].get("title", "无题") for idx in author_poems_indices
-                ]
-                # Find current poem index in the list if author matches
-                selected_poem_idx_in_list = 0
-                if current_author == selected_author and current_poem:
-                    current_idx = flashcard_state.get("current_index", 0)
-                    if current_idx in author_poems_indices:
-                        selected_poem_idx_in_list = author_poems_indices.index(
-                            current_idx
-                        )
-
-                selected_poem_option = st.selectbox(
-                    f"选择诗歌 ({len(author_poem_options)} 首)",
-                    author_poem_options,
-                    index=selected_poem_idx_in_list,
-                    key="poem_select_by_author_flashcard",
-                )
-
-                if st.button(
-                    "📍 跳转到此诗", use_container_width=True, key="jump_author_poem"
-                ):
-                    # Extract index from selection
-                    option_idx = author_poem_options.index(selected_poem_option)
-                    selected_idx = author_poems_indices[option_idx]
-                    flashcard_state = jump_to_poem(flashcard_state, selected_idx)
-                    st.session_state.flashcard_state = flashcard_state
-                    st.rerun()
-            else:
-                st.info("该作者暂无诗歌")
-
-    with nav_col3:
-        # Poem title dropdown (all poems) - sorted by title pinyin
-        # Create list with (index, title, author) for sorting
-        poem_data = [
-            (idx, poem.get("title", "无题"), poem.get("author", "未知"))
-            for idx, poem in enumerate(poems)
-        ]
-        # Sort by title pinyin
-        poem_data.sort(key=lambda x: "".join(lazy_pinyin(x[1])))
-
-        # Create options without IDs
-        poem_options = [f"{title} - {author}" for orig_idx, title, author in poem_data]
-
-        # Map option index to original poem index
-        poem_index_map = [orig_idx for orig_idx, _, _ in poem_data]
-
-        current_idx = flashcard_state.get("current_index", 0)
-        # Find current poem in sorted list
-        current_option_idx = 0
-        try:
-            current_option_idx = poem_index_map.index(current_idx)
-        except ValueError:
-            current_option_idx = 0
-
-        selected_poem = st.selectbox(
-            "按标题搜索",
-            poem_options,
-            index=current_option_idx,
-            key="poem_select_all_flashcard",
-        )
-
-        if st.button("📍 跳转到此诗", use_container_width=True, key="jump_all_poem"):
-            selected_option_idx = poem_options.index(selected_poem)
-            selected_idx = poem_index_map[selected_option_idx]
-            flashcard_state = jump_to_poem(flashcard_state, selected_idx)
-            st.session_state.flashcard_state = flashcard_state
-            st.rerun()
-
-    with nav_col4:
         # Search box
         search_query = st.text_input(
             "搜索诗歌（标题、作者或内容）",
@@ -655,8 +563,110 @@ def flashcard_mode():
                         st.rerun()
             else:
                 st.info("未找到匹配的诗歌")
-        else:
-            st.info("在搜索框中输入关键词")
+
+    # Collapsible section for Author and Title selection
+    with st.expander("📋 高级导航（按作者/标题选择）", expanded=False):
+        adv_nav_col1, adv_nav_col2 = st.columns(2)
+
+        with adv_nav_col1:
+            # Author dropdown
+            all_authors = get_all_authors(poems)
+            current_poem = get_current_flashcard(flashcard_state)
+            current_author = (
+                current_poem.get("author", "未知") if current_poem else "未知"
+            )
+
+            # Determine default index for author dropdown
+            author_default_idx = 0
+            if current_author in all_authors:
+                author_default_idx = all_authors.index(current_author) + 1
+
+            selected_author = st.selectbox(
+                "按作者选择",
+                ["全部"] + all_authors,
+                index=author_default_idx,
+                key="author_select_flashcard",
+            )
+
+            if selected_author != "全部":
+                # Get poems by this author
+                author_poems_indices = get_poems_by_author(poems, selected_author)
+                if author_poems_indices:
+                    # Create options with titles (no ID)
+                    author_poem_options = [
+                        poems[idx].get("title", "无题") for idx in author_poems_indices
+                    ]
+                    # Find current poem index in the list if author matches
+                    selected_poem_idx_in_list = 0
+                    if current_author == selected_author and current_poem:
+                        current_idx = flashcard_state.get("current_index", 0)
+                        if current_idx in author_poems_indices:
+                            selected_poem_idx_in_list = author_poems_indices.index(
+                                current_idx
+                            )
+
+                    selected_poem_option = st.selectbox(
+                        f"选择诗歌 ({len(author_poem_options)} 首)",
+                        author_poem_options,
+                        index=selected_poem_idx_in_list,
+                        key="poem_select_by_author_flashcard",
+                    )
+
+                    if st.button(
+                        "📍 跳转到此诗",
+                        use_container_width=True,
+                        key="jump_author_poem",
+                    ):
+                        # Extract index from selection
+                        option_idx = author_poem_options.index(selected_poem_option)
+                        selected_idx = author_poems_indices[option_idx]
+                        flashcard_state = jump_to_poem(flashcard_state, selected_idx)
+                        st.session_state.flashcard_state = flashcard_state
+                        st.rerun()
+                else:
+                    st.info("该作者暂无诗歌")
+
+        with adv_nav_col2:
+            # Poem title dropdown (all poems) - sorted by title pinyin
+            # Create list with (index, title, author) for sorting
+            poem_data = [
+                (idx, poem.get("title", "无题"), poem.get("author", "未知"))
+                for idx, poem in enumerate(poems)
+            ]
+            # Sort by title pinyin
+            poem_data.sort(key=lambda x: "".join(lazy_pinyin(x[1])))
+
+            # Create options without IDs
+            poem_options = [
+                f"{title} - {author}" for orig_idx, title, author in poem_data
+            ]
+
+            # Map option index to original poem index
+            poem_index_map = [orig_idx for orig_idx, _, _ in poem_data]
+
+            current_idx = flashcard_state.get("current_index", 0)
+            # Find current poem in sorted list
+            current_option_idx = 0
+            try:
+                current_option_idx = poem_index_map.index(current_idx)
+            except ValueError:
+                current_option_idx = 0
+
+            selected_poem = st.selectbox(
+                "按标题搜索",
+                poem_options,
+                index=current_option_idx,
+                key="poem_select_all_flashcard",
+            )
+
+            if st.button(
+                "📍 跳转到此诗", use_container_width=True, key="jump_all_poem"
+            ):
+                selected_option_idx = poem_options.index(selected_poem)
+                selected_idx = poem_index_map[selected_option_idx]
+                flashcard_state = jump_to_poem(flashcard_state, selected_idx)
+                st.session_state.flashcard_state = flashcard_state
+                st.rerun()
 
     st.divider()
 
