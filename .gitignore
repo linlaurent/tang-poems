@@ -174,3 +174,5 @@ Thumbs.db
 data/flashcard_progress.json
 data/users/flashcard_progress_*.json
 
+# Deduplication log files
+data/deduplication_log.json
