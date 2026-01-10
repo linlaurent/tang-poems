@@ -65,6 +65,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def get_user_id() -> str:
+    """
+    Get or initialize user ID for per-user progress tracking.
+    Tries to use Streamlit user email if available, otherwise uses session state.
+    """
+    # Check if user_id already exists in session state
+    if 'user_id' in st.session_state and st.session_state.user_id and st.session_state.user_id != "guest":
+        return st.session_state.user_id
+    
+    # Try to get user email from Streamlit (available in Streamlit Cloud)
+    try:
+        # In newer Streamlit versions, user info might be available
+        # Check if st.user exists (Streamlit 1.28+)
+        if hasattr(st, 'user') and st.user is not None:
+            user_email = st.user.email if hasattr(st.user, 'email') else None
+            if user_email:
+                st.session_state.user_id = user_email
+                return user_email
+    except:
+        pass
+    
+    # If no user email available and no username set, return guest
+    return "guest"
+
+
 def display_mode():
     """Display mode: Browse and search poems."""
     st.header("📖 浏览唐诗")
@@ -233,15 +258,23 @@ def flashcard_mode():
     """Flashcard mode: Learn poems with flashcards."""
     st.header("🃏 闪卡模式")
     
+    # Get user ID for per-user progress tracking
+    user_id = get_user_id()
+    
+    # Show warning if using guest mode
+    if user_id == "guest":
+        st.warning("⚠️ 您当前以访客模式使用。请在侧边栏输入用户名以保存学习进度。")
+    
     poems = load_poems()
     
     if not poems:
         st.error("无法加载诗歌数据。")
         return
     
-    # Initialize flashcard session
-    if 'flashcard_state' not in st.session_state:
-        st.session_state.flashcard_state = initialize_flashcard_session(poems)
+    # Initialize flashcard session with user_id
+    if 'flashcard_state' not in st.session_state or st.session_state.flashcard_state.get('user_id') != user_id:
+        # User changed or first time, reinitialize
+        st.session_state.flashcard_state = initialize_flashcard_session(poems, user_id)
         # Initialize filtered indices
         st.session_state.flashcard_state = apply_filter(st.session_state.flashcard_state)
         
@@ -319,7 +352,6 @@ def flashcard_mode():
     
     with col4:
         if st.button("💾 手动保存", use_container_width=True):
-            from src.flashcards import save_progress
             if save_progress(flashcard_state):
                 st.success("✅ 进度已保存")
             else:
@@ -616,9 +648,33 @@ def main():
     st.title("📚 唐诗三百首学习应用")
     st.markdown("---")
     
+    # Get user ID (needed for flashcard mode)
+    user_id = get_user_id()
+    
     # Mode selection in sidebar
     with st.sidebar:
         st.header("导航")
+        
+        # Show current user and username input if needed
+        if user_id != "guest":
+            st.info(f"👤 当前用户: {user_id}")
+        else:
+            # Show username input for guest users
+            st.info("👤 请输入用户名以保存学习进度")
+            username = st.text_input(
+                "用户名",
+                value="",
+                placeholder="输入您的用户名...",
+                key="username_input"
+            )
+            
+            if username and username.strip():
+                st.session_state.user_id = username.strip()
+                st.success(f"✅ 已登录: {username.strip()}")
+                st.rerun()
+            else:
+                st.warning("⚠️ 访客模式：进度不会保存")
+        
         mode = st.radio(
             "选择学习模式：",
             ["🃏 闪卡模式", "📖 浏览模式", "🎯 测验模式"],

@@ -8,21 +8,26 @@ from datetime import datetime
 from pypinyin import lazy_pinyin
 
 
-def get_progress_file_path() -> Path:
-    """Get the path to the progress save file."""
+def get_progress_file_path(user_id: str) -> Path:
+    """Get the path to the progress save file for a specific user."""
     current_file = Path(__file__)
     project_root = current_file.parent.parent
     data_dir = project_root / "data"
     data_dir.mkdir(exist_ok=True)
-    return data_dir / "flashcard_progress.json"
+    # Create user-specific subdirectory
+    user_dir = data_dir / "users"
+    user_dir.mkdir(exist_ok=True)
+    # Sanitize user_id for filename (replace special chars)
+    safe_user_id = "".join(c if c.isalnum() or c in ('-', '_', '@', '.') else '_' for c in user_id)
+    return user_dir / f"flashcard_progress_{safe_user_id}.json"
 
 
-def load_progress() -> Optional[Dict]:
+def load_progress(user_id: str) -> Optional[Dict]:
     """
-    Load flashcard progress from file.
+    Load flashcard progress from file for a specific user.
     Returns None if file doesn't exist or is invalid.
     """
-    progress_file = get_progress_file_path()
+    progress_file = get_progress_file_path(user_id)
     
     if not progress_file.exists():
         return None
@@ -43,13 +48,21 @@ def load_progress() -> Optional[Dict]:
         return None
 
 
-def save_progress(flashcard_state: Dict) -> bool:
+def save_progress(flashcard_state: Dict, user_id: Optional[str] = None) -> bool:
     """
-    Save flashcard progress to file.
+    Save flashcard progress to file for a specific user.
     Only saves persistent data (known_poems, practice_poems, current_index).
     Returns True if successful, False otherwise.
     """
-    progress_file = get_progress_file_path()
+    # Get user_id from flashcard_state if not provided
+    if user_id is None:
+        user_id = flashcard_state.get('user_id')
+    
+    if not user_id or user_id == "guest":
+        # Don't save progress for guest users
+        return False
+    
+    progress_file = get_progress_file_path(user_id)
     
     try:
         # Prepare data for saving (convert sets to lists for JSON)
@@ -69,9 +82,17 @@ def save_progress(flashcard_state: Dict) -> bool:
         return False
 
 
-def delete_progress_file() -> bool:
-    """Delete the progress file. Returns True if successful."""
-    progress_file = get_progress_file_path()
+def delete_progress_file(user_id: Optional[str] = None, flashcard_state: Optional[Dict] = None) -> bool:
+    """Delete the progress file for a specific user. Returns True if successful."""
+    # Get user_id from flashcard_state if provided, otherwise use parameter
+    if not user_id and flashcard_state:
+        user_id = flashcard_state.get('user_id')
+    
+    if not user_id:
+        print("Error: user_id is required to delete progress file")
+        return False
+    
+    progress_file = get_progress_file_path(user_id)
     try:
         if progress_file.exists():
             progress_file.unlink()
@@ -81,9 +102,9 @@ def delete_progress_file() -> bool:
         return False
 
 
-def initialize_flashcard_session(poems: List[Dict]) -> Dict:
+def initialize_flashcard_session(poems: List[Dict], user_id: str) -> Dict:
     """
-    Initialize flashcard session state.
+    Initialize flashcard session state for a specific user.
     Loads progress from file if it exists.
     """
     # Start with default values
@@ -97,10 +118,11 @@ def initialize_flashcard_session(poems: List[Dict]) -> Dict:
         'shuffle': False,
         'filtered_indices': list(range(len(poems))),
         'study_count': 0,
+        'user_id': user_id,  # Store user_id in state
     }
     
-    # Try to load saved progress
-    saved_progress = load_progress()
+    # Try to load saved progress for this user
+    saved_progress = load_progress(user_id)
     if saved_progress:
         # Restore persistent data
         state['known_poems'] = saved_progress.get('known_poems', set())
@@ -370,13 +392,13 @@ def jump_to_next_unknown(flashcard_state: Dict, save: bool = True) -> Dict:
 def reset_progress(flashcard_state: Dict) -> Dict:
     """
     Reset all progress (clear known and practice sets).
-    Also deletes the progress file.
+    Also deletes the progress file for this user.
     """
     flashcard_state['known_poems'] = set()
     flashcard_state['practice_poems'] = set()
     flashcard_state['study_count'] = 0
     flashcard_state['revealed'] = False
-    delete_progress_file()
+    delete_progress_file(flashcard_state=flashcard_state)
     return flashcard_state
 
 

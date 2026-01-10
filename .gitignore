@@ -172,4 +172,5 @@ Thumbs.db
 
 # User progress files (user-specific, should not be committed)
 data/flashcard_progress.json
+data/users/flashcard_progress_*.json
 
