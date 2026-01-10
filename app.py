@@ -488,7 +488,7 @@ def flashcard_mode():
                 "known": "已掌握",
             }[x],
             index=["all", "practice", "unknown", "known"].index(
-                flashcard_state.get("filter_mode", "all")
+                flashcard_state.get("filter_mode", "practice")
             ),
             label_visibility="collapsed",
             key="filter_mode_select",
