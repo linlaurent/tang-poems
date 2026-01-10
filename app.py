@@ -1,6 +1,8 @@
 """Main Streamlit application for learning 300 Tang Poems."""
 
 import streamlit as st
+import json
+from datetime import datetime
 from src.data_loader import load_poems, search_poems
 from src.quiz import initialize_quiz_session, get_next_question, check_answer
 from src.flashcards import (
@@ -8,7 +10,8 @@ from src.flashcards import (
     next_flashcard, previous_flashcard, mark_as_known, mark_for_practice,
     reveal_content, get_progress_stats, apply_filter, jump_to_next_practice,
     jump_to_next_unknown, reset_progress, get_current_poem_status, get_filtered_indices,
-    save_progress, jump_to_poem, get_all_authors, get_poems_by_author
+    save_progress, jump_to_poem, get_all_authors, get_poems_by_author,
+    export_progress_data, import_progress_data
 )
 from pypinyin import lazy_pinyin
 
@@ -311,7 +314,6 @@ def flashcard_mode():
             if last_saved:
                 try:
                     # Parse and format the timestamp
-                    from datetime import datetime
                     dt = datetime.fromisoformat(last_saved)
                     formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
                     st.success(f"✅ 已恢复之前的进度 (最后保存: {formatted_time})")
@@ -383,24 +385,6 @@ def flashcard_mode():
                 st.success("✅ 进度已保存")
             else:
                 st.error("❌ 保存失败")
-    
-    # Reset progress button
-    col_reset = st.columns([1])[0]
-    with col_reset:
-        if st.button("🔄 重置所有进度", use_container_width=True, type="secondary"):
-            if st.session_state.get('confirm_reset', False):
-                flashcard_state = reset_progress(flashcard_state)
-                flashcard_state = apply_filter(flashcard_state)
-                st.session_state.flashcard_state = flashcard_state
-                st.session_state.confirm_reset = False
-                st.success("✅ 进度已重置")
-                st.rerun()
-            else:
-                st.session_state.confirm_reset = True
-                st.warning("⚠️ 再次点击确认重置所有进度（这将删除保存的进度文件）")
-    
-    if st.session_state.get('confirm_reset', False):
-        st.info("⚠️ 点击上方的'重置所有进度'按钮以确认重置")
     
     st.divider()
     
@@ -668,6 +652,83 @@ def flashcard_mode():
                 flashcard_state = jump_to_next_unknown(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
+    
+    # Export and Import section at the end of the page
+    st.divider()
+    st.subheader("📤 导出/导入进度")
+    exp_col1, exp_col2, exp_col3 = st.columns(3)
+    
+    with exp_col1:
+        # Export progress
+        export_data = export_progress_data(flashcard_state)
+        export_json = json.dumps(export_data, ensure_ascii=False, indent=2)
+        # Sanitize user_id for filename
+        safe_user_id = "".join(c if c.isalnum() or c in ('-', '_', '@', '.') else '_' for c in user_id)
+        filename = f"flashcard_progress_{safe_user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        st.download_button(
+            label="📥 导出进度",
+            data=export_json,
+            file_name=filename,
+            mime="application/json",
+            use_container_width=True,
+            help="下载当前学习进度为JSON文件"
+        )
+    
+    with exp_col2:
+        # Import progress
+        uploaded_file = st.file_uploader(
+            "📤 导入进度",
+            type=['json'],
+            help="选择之前导出的进度JSON文件",
+            key="import_progress_file"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                import_data = json.load(uploaded_file)
+                
+                # Validate import data structure
+                if not isinstance(import_data, dict):
+                    st.error("❌ 无效的进度文件格式")
+                else:
+                    # Show preview of what will be imported
+                    known_count = len(import_data.get('known_poems', [])) if isinstance(import_data.get('known_poems'), list) else 0
+                    practice_count = len(import_data.get('practice_poems', [])) if isinstance(import_data.get('practice_poems'), list) else 0
+                    st.info(f"📋 将导入: {known_count} 首已掌握, {practice_count} 首需练习")
+                    
+                    if st.button("✅ 确认导入", use_container_width=True, key="confirm_import"):
+                        # Import the data
+                        flashcard_state = import_progress_data(flashcard_state, import_data, poems)
+                        flashcard_state = apply_filter(flashcard_state)
+                        st.session_state.flashcard_state = flashcard_state
+                        
+                        # Save the imported progress
+                        if save_progress(flashcard_state):
+                            st.success("✅ 进度已成功导入并保存")
+                        else:
+                            st.warning("⚠️ 进度已导入，但保存失败（可能是访客模式）")
+                        st.rerun()
+            except json.JSONDecodeError:
+                st.error("❌ 文件格式错误：不是有效的JSON文件")
+            except Exception as e:
+                st.error(f"❌ 导入失败: {str(e)}")
+    
+    with exp_col3:
+        # Reset progress button
+        if st.button("🔄 重置所有进度", use_container_width=True, type="secondary"):
+            if st.session_state.get('confirm_reset', False):
+                flashcard_state = reset_progress(flashcard_state)
+                flashcard_state = apply_filter(flashcard_state)
+                st.session_state.flashcard_state = flashcard_state
+                st.session_state.confirm_reset = False
+                st.success("✅ 进度已重置")
+                st.rerun()
+            else:
+                st.session_state.confirm_reset = True
+                st.warning("⚠️ 再次点击确认重置所有进度（这将删除保存的进度文件）")
+    
+    if st.session_state.get('confirm_reset', False):
+        st.info("⚠️ 点击上方的'重置所有进度'按钮以确认重置")
 
 
 def main():

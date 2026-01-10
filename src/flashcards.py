@@ -109,6 +109,121 @@ def save_progress(flashcard_state: Dict, user_id: Optional[str] = None) -> bool:
         return False
 
 
+def export_progress_data(flashcard_state: Dict) -> Dict:
+    """
+    Export flashcard progress data to a dictionary format for download.
+    Returns a dictionary with all progress data.
+    """
+    export_data = {
+        'version': '1.0',
+        'exported_at': datetime.now().isoformat(),
+        'known_poems': sorted(list(flashcard_state.get('known_poems', set()))),
+        'practice_poems': sorted(list(flashcard_state.get('practice_poems', set()))),
+        'current_index': flashcard_state.get('current_index', 0),
+        'total_poems': len(flashcard_state.get('poems', [])),
+    }
+    return export_data
+
+
+def import_progress_data(flashcard_state: Dict, import_data: Dict, poems: List[Dict]) -> Dict:
+    """
+    Import flashcard progress data from a dictionary.
+    Validates and imports known_poems, practice_poems, and current_index.
+    Returns updated flashcard_state.
+    """
+    total_poems = len(poems)
+    
+    # Validate and import known_poems
+    if 'known_poems' in import_data:
+        known_list = import_data['known_poems']
+        if isinstance(known_list, list):
+            # Filter valid indices
+            valid_known = {idx for idx in known_list if isinstance(idx, int) and 0 <= idx < total_poems}
+            flashcard_state['known_poems'] = valid_known
+    
+    # Validate and import practice_poems
+    if 'practice_poems' in import_data:
+        practice_list = import_data['practice_poems']
+        if isinstance(practice_list, list):
+            # Filter valid indices
+            valid_practice = {idx for idx in practice_list if isinstance(idx, int) and 0 <= idx < total_poems}
+            flashcard_state['practice_poems'] = valid_practice
+    
+    # Validate and import current_index
+    if 'current_index' in import_data:
+        current_idx = import_data['current_index']
+        if isinstance(current_idx, int) and 0 <= current_idx < total_poems:
+            flashcard_state['current_index'] = current_idx
+    
+    # Remove poems from known if they're in practice and vice versa
+    flashcard_state['known_poems'] = flashcard_state.get('known_poems', set()) - flashcard_state.get('practice_poems', set())
+    flashcard_state['practice_poems'] = flashcard_state.get('practice_poems', set()) - flashcard_state.get('known_poems', set())
+    
+    # Reset revealed state
+    flashcard_state['revealed'] = False
+    
+    return flashcard_state
+
+
+def export_progress_data(flashcard_state: Dict) -> Dict:
+    """
+    Export flashcard progress data to a dictionary format for download.
+    Returns a dictionary with all progress data.
+    """
+    export_data = {
+        'version': '1.0',
+        'exported_at': datetime.now().isoformat(),
+        'known_poems': sorted(list(flashcard_state.get('known_poems', set()))),
+        'practice_poems': sorted(list(flashcard_state.get('practice_poems', set()))),
+        'current_index': flashcard_state.get('current_index', 0),
+        'total_poems': len(flashcard_state.get('poems', [])),
+    }
+    return export_data
+
+
+def import_progress_data(flashcard_state: Dict, import_data: Dict, poems: List[Dict]) -> Dict:
+    """
+    Import flashcard progress data from a dictionary.
+    Validates and imports known_poems, practice_poems, and current_index.
+    Returns updated flashcard_state.
+    """
+    total_poems = len(poems)
+    
+    # Validate and import known_poems
+    if 'known_poems' in import_data:
+        known_list = import_data['known_poems']
+        if isinstance(known_list, list):
+            # Filter valid indices
+            valid_known = {idx for idx in known_list if isinstance(idx, int) and 0 <= idx < total_poems}
+            flashcard_state['known_poems'] = valid_known
+    
+    # Validate and import practice_poems
+    if 'practice_poems' in import_data:
+        practice_list = import_data['practice_poems']
+        if isinstance(practice_list, list):
+            # Filter valid indices
+            valid_practice = {idx for idx in practice_list if isinstance(idx, int) and 0 <= idx < total_poems}
+            flashcard_state['practice_poems'] = valid_practice
+    
+    # Validate and import current_index
+    if 'current_index' in import_data:
+        current_idx = import_data['current_index']
+        if isinstance(current_idx, int) and 0 <= current_idx < total_poems:
+            flashcard_state['current_index'] = current_idx
+    
+    # Ensure no overlap between known and practice (known takes priority)
+    known_set = flashcard_state.get('known_poems', set())
+    practice_set = flashcard_state.get('practice_poems', set())
+    # Remove poems from practice if they're in known
+    practice_set = practice_set - known_set
+    flashcard_state['practice_poems'] = practice_set
+    
+    # Reset revealed state
+    flashcard_state['revealed'] = False
+    
+    return flashcard_state
+
+
 def delete_progress_file(user_id: Optional[str] = None, flashcard_state: Optional[Dict] = None) -> bool:
     """Delete the progress file for a specific user. Returns True if successful."""
     # Get user_id from flashcard_state if provided, otherwise use parameter
