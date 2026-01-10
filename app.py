@@ -462,7 +462,7 @@ def flashcard_mode():
         """
         st.markdown(progress_bar_html, unsafe_allow_html=True)
 
-    # Filter and options
+    # Navigation and Filter section
     st.divider()
     # Ensure shuffle is always enabled
     if not flashcard_state.get("shuffle", True):
@@ -470,33 +470,36 @@ def flashcard_mode():
         flashcard_state = apply_filter(flashcard_state)
         st.session_state.flashcard_state = flashcard_state
 
-    filter_mode = st.selectbox(
-        "筛选模式",
-        ["all", "practice", "unknown", "known"],
-        format_func=lambda x: {
-            "all": "全部",
-            "practice": "需练习",
-            "unknown": "未学习",
-            "known": "已掌握",
-        }[x],
-        index=["all", "practice", "unknown", "known"].index(
-            flashcard_state.get("filter_mode", "all")
-        ),
-    )
-    if filter_mode != flashcard_state.get("filter_mode"):
-        flashcard_state["filter_mode"] = filter_mode
-        flashcard_state = apply_filter(flashcard_state)
-        st.session_state.flashcard_state = flashcard_state
-        st.rerun()
-
-    st.divider()
-
-    # Navigation controls: Author dropdown, Poem dropdown, and Search
+    # Navigation controls: Filter mode, Author dropdown, Poem dropdown, and Search
     st.subheader("🔍 快速导航")
 
-    nav_col1, nav_col2, nav_col3 = st.columns(3)
+    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns(4)
 
     with nav_col1:
+        # Filter mode
+        st.write("**筛选模式**")
+        filter_mode = st.selectbox(
+            "筛选",
+            ["all", "practice", "unknown", "known"],
+            format_func=lambda x: {
+                "all": "全部",
+                "practice": "需练习",
+                "unknown": "未学习",
+                "known": "已掌握",
+            }[x],
+            index=["all", "practice", "unknown", "known"].index(
+                flashcard_state.get("filter_mode", "all")
+            ),
+            label_visibility="collapsed",
+            key="filter_mode_select",
+        )
+        if filter_mode != flashcard_state.get("filter_mode"):
+            flashcard_state["filter_mode"] = filter_mode
+            flashcard_state = apply_filter(flashcard_state)
+            st.session_state.flashcard_state = flashcard_state
+            st.rerun()
+
+    with nav_col2:
         # Author dropdown
         all_authors = get_all_authors(poems)
         current_poem = get_current_flashcard(flashcard_state)
@@ -550,7 +553,7 @@ def flashcard_mode():
             else:
                 st.info("该作者暂无诗歌")
 
-    with nav_col2:
+    with nav_col3:
         # Poem title dropdown (all poems) - sorted by title pinyin
         # Create list with (index, title, author) for sorting
         poem_data = [
@@ -588,7 +591,7 @@ def flashcard_mode():
             st.session_state.flashcard_state = flashcard_state
             st.rerun()
 
-    with nav_col3:
+    with nav_col4:
         # Search box
         search_query = st.text_input(
             "搜索诗歌（标题、作者或内容）",
