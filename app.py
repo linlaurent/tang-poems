@@ -261,6 +261,10 @@ def flashcard_mode():
     # Get user ID for per-user progress tracking
     user_id = get_user_id()
     
+    # Ensure user_id is always a valid string
+    if not user_id or not isinstance(user_id, str):
+        user_id = "guest"
+    
     # Show warning if using guest mode
     if user_id == "guest":
         st.warning("⚠️ 您当前以访客模式使用。请在侧边栏输入用户名以保存学习进度。")
@@ -272,11 +276,34 @@ def flashcard_mode():
         return
     
     # Initialize flashcard session with user_id
-    if 'flashcard_state' not in st.session_state or st.session_state.flashcard_state.get('user_id') != user_id:
+    # Check if we need to reinitialize (first time or user changed)
+    needs_reinit = False
+    if 'flashcard_state' not in st.session_state:
+        needs_reinit = True
+    else:
+        # Check if user_id matches (handle old sessions without user_id)
+        existing_user_id = st.session_state.flashcard_state.get('user_id') if isinstance(st.session_state.flashcard_state, dict) else None
+        if existing_user_id != user_id:
+            needs_reinit = True
+    
+    if needs_reinit:
         # User changed or first time, reinitialize
-        st.session_state.flashcard_state = initialize_flashcard_session(poems, user_id)
-        # Initialize filtered indices
-        st.session_state.flashcard_state = apply_filter(st.session_state.flashcard_state)
+        try:
+            # Ensure poems is a list and user_id is a string
+            if not isinstance(poems, list):
+                st.error("诗歌数据格式错误。")
+                return
+            if not isinstance(user_id, str):
+                user_id = "guest"
+            
+            st.session_state.flashcard_state = initialize_flashcard_session(poems, user_id)
+            # Initialize filtered indices
+            st.session_state.flashcard_state = apply_filter(st.session_state.flashcard_state)
+        except Exception as e:
+            st.error(f"初始化闪卡会话时出错: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+            return
         
         # Show message if progress was loaded
         if 'last_saved' in st.session_state.flashcard_state:

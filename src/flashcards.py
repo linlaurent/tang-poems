@@ -10,13 +10,36 @@ from pypinyin import lazy_pinyin
 
 def get_progress_file_path(user_id: str) -> Path:
     """Get the path to the progress save file for a specific user."""
-    current_file = Path(__file__)
-    project_root = current_file.parent.parent
+    # Validate user_id
+    if not user_id or not isinstance(user_id, str):
+        user_id = "guest"
+    
+    try:
+        # Try to get path relative to current file location
+        current_file = Path(__file__)
+        project_root = current_file.parent.parent
+    except (AttributeError, OSError):
+        # Fallback to current working directory if __file__ is not available
+        project_root = Path.cwd()
+    
     data_dir = project_root / "data"
-    data_dir.mkdir(exist_ok=True)
+    try:
+        data_dir.mkdir(exist_ok=True, parents=True)
+    except (OSError, PermissionError) as e:
+        print(f"Warning: Could not create data directory: {e}")
+        # Fallback to a temporary or current directory
+        data_dir = Path.cwd() / "data"
+        data_dir.mkdir(exist_ok=True, parents=True)
+    
     # Create user-specific subdirectory
     user_dir = data_dir / "users"
-    user_dir.mkdir(exist_ok=True)
+    try:
+        user_dir.mkdir(exist_ok=True, parents=True)
+    except (OSError, PermissionError) as e:
+        print(f"Warning: Could not create users directory: {e}")
+        # Fallback: use data_dir directly
+        user_dir = data_dir
+    
     # Sanitize user_id for filename (replace special chars)
     safe_user_id = "".join(c if c.isalnum() or c in ('-', '_', '@', '.') else '_' for c in user_id)
     return user_dir / f"flashcard_progress_{safe_user_id}.json"
@@ -27,6 +50,10 @@ def load_progress(user_id: str) -> Optional[Dict]:
     Load flashcard progress from file for a specific user.
     Returns None if file doesn't exist or is invalid.
     """
+    # Validate user_id
+    if not user_id or not isinstance(user_id, str) or user_id == "guest":
+        return None
+    
     progress_file = get_progress_file_path(user_id)
     
     if not progress_file.exists():
@@ -107,6 +134,10 @@ def initialize_flashcard_session(poems: List[Dict], user_id: str) -> Dict:
     Initialize flashcard session state for a specific user.
     Loads progress from file if it exists.
     """
+    # Validate user_id
+    if not user_id or not isinstance(user_id, str):
+        user_id = "guest"
+    
     # Start with default values
     state = {
         'current_index': 0,
@@ -121,8 +152,11 @@ def initialize_flashcard_session(poems: List[Dict], user_id: str) -> Dict:
         'user_id': user_id,  # Store user_id in state
     }
     
-    # Try to load saved progress for this user
-    saved_progress = load_progress(user_id)
+    # Try to load saved progress for this user (only if not guest)
+    saved_progress = None
+    if user_id != "guest":
+        saved_progress = load_progress(user_id)
+    
     if saved_progress:
         # Restore persistent data
         state['known_poems'] = saved_progress.get('known_poems', set())
