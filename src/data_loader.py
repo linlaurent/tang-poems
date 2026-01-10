@@ -179,17 +179,28 @@ def load_poems() -> List[Dict]:
 def search_poems(poems: List[Dict], query: str) -> List[Dict]:
     """
     Search poems by title, author, or content.
+    Handles Chinese characters properly (no case conversion needed).
     """
-    if not query:
+    if not query or not query.strip():
         return poems
     
-    query_lower = query.lower()
+    # Strip whitespace and normalize the query
+    query = query.strip()
+    
+    # For Chinese text, .lower() doesn't change anything, but we keep it for consistency
+    # and in case there are any English characters in titles/authors
+    query_normalized = query.lower()
     results = []
     
     for poem in poems:
-        title_match = query_lower in poem.get('title', '').lower()
-        author_match = query_lower in poem.get('author', '').lower()
-        content_match = query_lower in poem.get('content', '').lower()
+        title = poem.get('title', '')
+        author = poem.get('author', '')
+        content = poem.get('content', '')
+        
+        # Direct substring matching (works for Chinese)
+        title_match = query in title or query_normalized in title.lower()
+        author_match = query in author or query_normalized in author.lower()
+        content_match = query in content or query_normalized in content.lower()
         
         if title_match or author_match or content_match:
             results.append(poem)

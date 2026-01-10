@@ -71,24 +71,39 @@ def display_mode():
     # Search bar
     col1, col2 = st.columns([3, 1])
     with col1:
-        search_query = st.text_input("🔍 搜索诗歌（标题、作者或内容）", placeholder="输入关键词...")
+        search_query = st.text_input(
+            "🔍 搜索诗歌（标题、作者或内容）", 
+            placeholder="输入关键词...",
+            key="poem_search_input"
+        )
     with col2:
         st.write("")  # Spacing
         st.write(f"**共 {len(poems)} 首诗**")
     
-    # Filter poems
-    filtered_poems = search_poems(poems, search_query)
-    
-    if not filtered_poems:
-        st.info("未找到匹配的诗歌。")
-        return
-    
-    # Display poems
-    st.write(f"找到 {len(filtered_poems)} 首诗歌")
+    # Filter poems based on search query
+    if search_query and search_query.strip():
+        filtered_poems = search_poems(poems, search_query)
+        if not filtered_poems:
+            st.warning(f"未找到匹配「{search_query}」的诗歌。")
+            st.info("💡 提示：可以尝试搜索作者名（如：李白、杜甫）或诗歌标题中的关键词")
+            return
+        st.success(f"找到 {len(filtered_poems)} 首匹配的诗歌")
+    else:
+        filtered_poems = poems
+        st.info(f"显示全部 {len(filtered_poems)} 首诗歌（在搜索框输入关键词可进行筛选）")
     
     # Pagination
     poems_per_page = 5
     total_pages = (len(filtered_poems) + poems_per_page - 1) // poems_per_page
+    
+    # Initialize or reset page when search changes
+    if 'last_search_query' not in st.session_state:
+        st.session_state.last_search_query = search_query
+        st.session_state.display_page = 0
+    elif st.session_state.last_search_query != search_query:
+        # Search query changed, reset to first page
+        st.session_state.last_search_query = search_query
+        st.session_state.display_page = 0
     
     if 'display_page' not in st.session_state:
         st.session_state.display_page = 0
