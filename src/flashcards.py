@@ -4,9 +4,8 @@ from typing import List, Dict, Optional
 import random
 import json
 from pathlib import Path
-import json
-from pathlib import Path
 from datetime import datetime
+from pypinyin import lazy_pinyin
 
 
 def get_progress_file_path() -> Path:
@@ -392,4 +391,50 @@ def get_current_poem_status(flashcard_state: Dict) -> str:
         return 'practice'
     else:
         return 'unknown'
+
+
+def jump_to_poem(flashcard_state: Dict, poem_index: int, save: bool = True) -> Dict:
+    """
+    Jump to a specific poem by index.
+    If save is True, automatically saves progress to file.
+    """
+    total = len(flashcard_state['poems'])
+    if 0 <= poem_index < total:
+        flashcard_state['current_index'] = poem_index
+        flashcard_state['revealed'] = False
+        
+        if save:
+            save_progress(flashcard_state)
+    
+    return flashcard_state
+
+
+def get_all_authors(poems: List[Dict]) -> List[str]:
+    """
+    Get list of all unique authors from poems, sorted by pinyin.
+    """
+    authors = set()
+    for poem in poems:
+        author = poem.get('author', '未知')
+        if author:
+            authors.add(author)
+    # Sort by pinyin
+    authors_list = list(authors)
+    authors_list.sort(key=lambda x: ''.join(lazy_pinyin(x)))
+    return authors_list
+
+
+def get_poems_by_author(poems: List[Dict], author: str) -> List[int]:
+    """
+    Get list of poem indices for a specific author, sorted by poem title pinyin.
+    """
+    indices_with_titles = []
+    for idx, poem in enumerate(poems):
+        if poem.get('author', '') == author:
+            title = poem.get('title', '无题')
+            indices_with_titles.append((idx, title))
+    
+    # Sort by title pinyin
+    indices_with_titles.sort(key=lambda x: ''.join(lazy_pinyin(x[1])))
+    return [idx for idx, _ in indices_with_titles]
 
