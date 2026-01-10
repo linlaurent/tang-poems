@@ -461,17 +461,17 @@ def main():
         st.header("导航")
         mode = st.radio(
             "选择学习模式：",
-            ["📖 浏览模式", "🎯 测验模式", "🃏 闪卡模式"],
+            ["🃏 闪卡模式", "📖 浏览模式", "🎯 测验模式"],
             label_visibility="collapsed"
         )
     
     # Route to appropriate mode
-    if "浏览模式" in mode:
+    if "闪卡模式" in mode:
+        flashcard_mode()
+    elif "浏览模式" in mode:
         display_mode()
     elif "测验模式" in mode:
         quiz_mode()
-    elif "闪卡模式" in mode:
-        flashcard_mode()
 
 
 if __name__ == "__main__":
