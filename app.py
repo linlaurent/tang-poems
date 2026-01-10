@@ -599,11 +599,19 @@ def flashcard_mode():
                     # Find current poem index in the list if author matches
                     selected_poem_idx_in_list = 0
                     if current_author == selected_author and current_poem:
-                        current_idx = flashcard_state.get("current_index", 0)
-                        if current_idx in author_poems_indices:
-                            selected_poem_idx_in_list = author_poems_indices.index(
-                                current_idx
-                            )
+                        current_id = flashcard_state.get("current_id", "")
+                        if current_id:
+                            # Find current poem's index
+                            from src.data_loader import get_poem_index_by_id
+
+                            current_idx = get_poem_index_by_id(poems, current_id)
+                            if (
+                                current_idx is not None
+                                and current_idx in author_poems_indices
+                            ):
+                                selected_poem_idx_in_list = author_poems_indices.index(
+                                    current_idx
+                                )
 
                     selected_poem_option = st.selectbox(
                         f"选择诗歌 ({len(author_poem_options)} 首)",
@@ -644,13 +652,18 @@ def flashcard_mode():
             # Map option index to original poem index
             poem_index_map = [orig_idx for orig_idx, _, _ in poem_data]
 
-            current_idx = flashcard_state.get("current_index", 0)
+            current_id = flashcard_state.get("current_id", "")
             # Find current poem in sorted list
             current_option_idx = 0
-            try:
-                current_option_idx = poem_index_map.index(current_idx)
-            except ValueError:
-                current_option_idx = 0
+            if current_id:
+                from src.data_loader import get_poem_index_by_id
+
+                current_idx = get_poem_index_by_id(poems, current_id)
+                if current_idx is not None:
+                    try:
+                        current_option_idx = poem_index_map.index(current_idx)
+                    except ValueError:
+                        current_option_idx = 0
 
             selected_poem = st.selectbox(
                 "按标题搜索",
@@ -671,9 +684,9 @@ def flashcard_mode():
     st.divider()
 
     # Show filtered count
-    filtered_indices = flashcard_state.get("filtered_indices", [])
+    filtered_ids = flashcard_state.get("filtered_ids", [])
     if flashcard_state.get("filter_mode", "all") != "all":
-        st.info(f"📋 当前筛选：显示 {len(filtered_indices)} 首诗歌")
+        st.info(f"📋 当前筛选：显示 {len(filtered_ids)} 首诗歌")
 
     # Current flashcard
     current_poem = get_current_flashcard(flashcard_state)
@@ -736,7 +749,7 @@ def flashcard_mode():
                     "✅ 已掌握",
                     use_container_width=True,
                     type="primary"
-                    if flashcard_state["current_index"]
+                    if flashcard_state.get("current_id", "")
                     in flashcard_state["known_poems"]
                     else "secondary",
                 ):
@@ -749,7 +762,7 @@ def flashcard_mode():
                     "📝 需练习",
                     use_container_width=True,
                     type="primary"
-                    if flashcard_state["current_index"]
+                    if flashcard_state.get("current_id", "")
                     in flashcard_state["practice_poems"]
                     else "secondary",
                 ):
@@ -758,18 +771,19 @@ def flashcard_mode():
                     st.rerun()
 
         # Navigation
-        filtered_indices = flashcard_state.get(
-            "filtered_indices", list(range(len(poems)))
-        )
-        if filtered_indices:
+        filtered_ids = flashcard_state.get("filtered_ids", [])
+        if not filtered_ids:
+            # Fallback: get all poem IDs
+            filtered_ids = [poem.get("id") for poem in poems if poem.get("id")]
+
+        if filtered_ids:
             try:
-                current_pos = (
-                    filtered_indices.index(flashcard_state["current_index"]) + 1
-                )
-                total_filtered = len(filtered_indices)
+                current_id = flashcard_state.get("current_id", "")
+                current_pos = filtered_ids.index(current_id) + 1
+                total_filtered = len(filtered_ids)
             except ValueError:
                 current_pos = 1
-                total_filtered = len(filtered_indices)
+                total_filtered = len(filtered_ids)
         else:
             current_pos = 0
             total_filtered = 0
@@ -777,24 +791,30 @@ def flashcard_mode():
         col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
         with col1:
             if st.button(
-                "◀ 上一张", use_container_width=True, disabled=(not filtered_indices)
+                "◀ 上一张", use_container_width=True, disabled=(not filtered_ids)
             ):
                 flashcard_state = previous_flashcard(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
 
         with col2:
-            if filtered_indices:
+            if filtered_ids:
                 st.write(f"**{current_pos} / {total_filtered}**")
                 if flashcard_state.get("filter_mode", "all") != "all":
-                    st.caption(f"(总第 {flashcard_state['current_index'] + 1} 首)")
+                    # Get current poem index for display
+                    from src.data_loader import get_poem_index_by_id
+
+                    current_id = flashcard_state.get("current_id", "")
+                    current_idx = get_poem_index_by_id(poems, current_id)
+                    if current_idx is not None:
+                        st.caption(f"(总第 {current_idx + 1} 首)")
             else:
                 st.write("**0 / 0**")
                 st.warning("当前筛选模式下无诗歌")
 
         with col3:
             if st.button(
-                "下一张 ▶", use_container_width=True, disabled=(not filtered_indices)
+                "下一张 ▶", use_container_width=True, disabled=(not filtered_ids)
             ):
                 flashcard_state = next_flashcard(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state

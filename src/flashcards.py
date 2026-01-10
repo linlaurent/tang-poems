@@ -8,6 +8,14 @@ from typing import Optional
 
 from pypinyin import lazy_pinyin
 
+# Import helper functions
+try:
+    # Try relative import first (when used as a module)
+    from .data_loader import get_poem_id_by_index, get_poem_index_by_id
+except ImportError:
+    # Fall back to absolute import (when used directly)
+    from src.data_loader import get_poem_id_by_index, get_poem_index_by_id
+
 
 def get_progress_file_path(user_id: str) -> Path:
     """Get the path to the progress save file for a specific user."""
@@ -48,9 +56,98 @@ def get_progress_file_path(user_id: str) -> Path:
     return user_dir / f"flashcard_progress_{safe_user_id}.json"
 
 
-def load_progress(user_id: str) -> Optional[dict]:
+def migrate_progress_from_indices_to_ids(
+    progress_data: dict, poems: list[dict]
+) -> dict:
+    """
+    Migrate progress data from index-based to ID-based format.
+    Converts known_poems, practice_poems, and current_index to use IDs.
+    """
+    migrated = progress_data.copy()
+
+    # Migrate known_poems from indices to IDs
+    if "known_poems" in migrated:
+        known_indices = migrated["known_poems"]
+        if isinstance(known_indices, (list, set)):
+            known_ids = set()
+            for idx in known_indices:
+                if isinstance(idx, int) and 0 <= idx < len(poems):
+                    poem_id = get_poem_id_by_index(poems, idx)
+                    if poem_id:
+                        known_ids.add(poem_id)
+                elif isinstance(idx, str):
+                    # Already an ID, keep it (validate it exists in poems)
+                    if any(p.get("id") == idx for p in poems):
+                        known_ids.add(idx)
+            migrated["known_poems"] = known_ids
+        else:
+            # Invalid type, reset to empty set
+            migrated["known_poems"] = set()
+    else:
+        migrated["known_poems"] = set()
+
+    # Migrate practice_poems from indices to IDs
+    if "practice_poems" in migrated:
+        practice_indices = migrated["practice_poems"]
+        if isinstance(practice_indices, (list, set)):
+            practice_ids = set()
+            for idx in practice_indices:
+                if isinstance(idx, int) and 0 <= idx < len(poems):
+                    poem_id = get_poem_id_by_index(poems, idx)
+                    if poem_id:
+                        practice_ids.add(poem_id)
+                elif isinstance(idx, str):
+                    # Already an ID, keep it (validate it exists in poems)
+                    if any(p.get("id") == idx for p in poems):
+                        practice_ids.add(idx)
+            migrated["practice_poems"] = practice_ids
+        else:
+            # Invalid type, reset to empty set
+            migrated["practice_poems"] = set()
+    else:
+        migrated["practice_poems"] = set()
+
+    # Migrate current_index to current_id
+    if "current_index" in migrated:
+        current_idx = migrated["current_index"]
+        if isinstance(current_idx, int) and 0 <= current_idx < len(poems):
+            poem_id = get_poem_id_by_index(poems, current_idx)
+            if poem_id:
+                migrated["current_id"] = poem_id
+            else:
+                # Index valid but poem has no ID, use first poem with ID
+                for poem in poems:
+                    if poem.get("id"):
+                        migrated["current_id"] = poem["id"]
+                        break
+                else:
+                    migrated["current_id"] = ""
+        elif isinstance(current_idx, str):
+            # Already an ID (shouldn't happen, but handle it)
+            if any(p.get("id") == current_idx for p in poems):
+                migrated["current_id"] = current_idx
+            else:
+                migrated["current_id"] = ""
+        # Remove old current_index
+        del migrated["current_index"]
+    elif "current_id" not in migrated:
+        # No current_index and no current_id, set to first poem with ID
+        migrated["current_id"] = ""
+        for poem in poems:
+            if poem.get("id"):
+                migrated["current_id"] = poem["id"]
+                break
+
+    # Mark as migrated
+    migrated["migrated_to_ids"] = True
+
+    return migrated
+
+
+def load_progress(user_id: str, poems: Optional[list[dict]] = None) -> Optional[dict]:
     """
     Load flashcard progress from file for a specific user.
+    Automatically migrates from index-based to ID-based format if needed.
     Returns None if file doesn't exist or is invalid.
     """
     # Validate user_id
@@ -66,11 +163,80 @@ def load_progress(user_id: str) -> Optional[dict]:
         with open(progress_file, encoding="utf-8") as f:
             data = json.load(f)
 
-        # Convert lists back to sets
+        # Check if migration is needed BEFORE converting to sets
+        # Migration needed if:
+        # 1. Poems list is provided and not empty
+        # 2. File hasn't been migrated yet (no migrated_to_ids flag)
+        # 3. File contains old format indicators
+        #    (current_index or integer-based known/practice poems)
+        has_old_format = False
+        if "current_index" in data:
+            has_old_format = True
+        else:
+            # Check if known_poems or practice_poems contain integers (indices)
+            # instead of strings (IDs)
+            known_list = data.get("known_poems", [])
+            practice_list = data.get("practice_poems", [])
+            if isinstance(known_list, list) and len(known_list) > 0:
+                has_old_format = isinstance(known_list[0], int)
+            if (
+                not has_old_format
+                and isinstance(practice_list, list)
+                and len(practice_list) > 0
+            ):
+                has_old_format = isinstance(practice_list[0], int)
+
+        needs_migration = (
+            poems is not None
+            and len(poems) > 0
+            and not data.get("migrated_to_ids", False)
+            and has_old_format
+        )
+
+        # Migrate from indices to IDs if needed (before converting to sets)
+        if needs_migration:
+            try:
+                print(
+                    f"Migrating progress file for user {user_id} "
+                    f"from index-based to ID-based format..."
+                )
+                original_last_updated = data.get(
+                    "last_updated", datetime.now().isoformat()
+                )
+                data = migrate_progress_from_indices_to_ids(data, poems)
+                # Preserve original last_updated timestamp
+                data["last_updated"] = original_last_updated
+                # Save migrated version back to file immediately
+                save_data = {
+                    "known_poems": sorted(data.get("known_poems", set())),
+                    "practice_poems": sorted(data.get("practice_poems", set())),
+                    "current_id": data.get("current_id", ""),
+                    "last_updated": data.get(
+                        "last_updated", datetime.now().isoformat()
+                    ),
+                    "migrated_to_ids": True,
+                }
+                with open(progress_file, "w", encoding="utf-8") as f:
+                    json.dump(save_data, f, ensure_ascii=False, indent=2)
+                print(f"Successfully migrated progress file for user {user_id}")
+            except Exception as e:
+                print(f"Error migrating progress file for user {user_id}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                # Continue with non-migrated data rather than failing completely
+
+        # Convert lists back to sets (after migration)
         if "known_poems" in data:
-            data["known_poems"] = set(data["known_poems"])
+            if isinstance(data["known_poems"], list):
+                data["known_poems"] = set(data["known_poems"])
+            elif not isinstance(data["known_poems"], set):
+                data["known_poems"] = set()
         if "practice_poems" in data:
-            data["practice_poems"] = set(data["practice_poems"])
+            if isinstance(data["practice_poems"], list):
+                data["practice_poems"] = set(data["practice_poems"])
+            elif not isinstance(data["practice_poems"], set):
+                data["practice_poems"] = set()
 
         return data
     except Exception as e:
@@ -81,7 +247,7 @@ def load_progress(user_id: str) -> Optional[dict]:
 def save_progress(flashcard_state: dict, user_id: Optional[str] = None) -> bool:
     """
     Save flashcard progress to file for a specific user.
-    Only saves persistent data (known_poems, practice_poems, current_index).
+    Only saves persistent data (known_poems, practice_poems, current_id).
     Returns True if successful, False otherwise.
     """
     # Get user_id from flashcard_state if not provided
@@ -99,8 +265,9 @@ def save_progress(flashcard_state: dict, user_id: Optional[str] = None) -> bool:
         save_data = {
             "known_poems": list(flashcard_state.get("known_poems", set())),
             "practice_poems": list(flashcard_state.get("practice_poems", set())),
-            "current_index": flashcard_state.get("current_index", 0),
+            "current_id": flashcard_state.get("current_id", ""),
             "last_updated": datetime.now().isoformat(),
+            "migrated_to_ids": True,
         }
 
         with open(progress_file, "w", encoding="utf-8") as f:
@@ -118,12 +285,13 @@ def export_progress_data(flashcard_state: dict) -> dict:
     Returns a dictionary with all progress data.
     """
     export_data = {
-        "version": "1.0",
+        "version": "2.0",  # Updated version for ID-based system
         "exported_at": datetime.now().isoformat(),
         "known_poems": sorted(flashcard_state.get("known_poems", set())),
         "practice_poems": sorted(flashcard_state.get("practice_poems", set())),
-        "current_index": flashcard_state.get("current_index", 0),
+        "current_id": flashcard_state.get("current_id", ""),
         "total_poems": len(flashcard_state.get("poems", [])),
+        "migrated_to_ids": True,
     }
     return export_data
 
@@ -133,20 +301,29 @@ def import_progress_data(
 ) -> dict:
     """
     Import flashcard progress data from a dictionary.
-    Validates and imports known_poems, practice_poems, and current_index.
+    Validates and imports known_poems, practice_poems, and current_id.
+    Supports both old index-based and new ID-based formats.
     Returns updated flashcard_state.
     """
-    total_poems = len(poems)
+    # Check if this is old format (index-based) or new format (ID-based)
+    is_old_format = "current_index" in import_data and "current_id" not in import_data
+
+    if is_old_format:
+        # Migrate old format to new format
+        import_data = migrate_progress_from_indices_to_ids(import_data, poems)
+
+    # Create a set of valid poem IDs for validation
+    valid_poem_ids = {poem.get("id") for poem in poems if poem.get("id")}
 
     # Validate and import known_poems
     if "known_poems" in import_data:
         known_list = import_data["known_poems"]
         if isinstance(known_list, list):
-            # Filter valid indices
+            # Filter valid IDs
             valid_known = {
-                idx
-                for idx in known_list
-                if isinstance(idx, int) and 0 <= idx < total_poems
+                poem_id
+                for poem_id in known_list
+                if isinstance(poem_id, str) and poem_id in valid_poem_ids
             }
             flashcard_state["known_poems"] = valid_known
 
@@ -154,19 +331,19 @@ def import_progress_data(
     if "practice_poems" in import_data:
         practice_list = import_data["practice_poems"]
         if isinstance(practice_list, list):
-            # Filter valid indices
+            # Filter valid IDs
             valid_practice = {
-                idx
-                for idx in practice_list
-                if isinstance(idx, int) and 0 <= idx < total_poems
+                poem_id
+                for poem_id in practice_list
+                if isinstance(poem_id, str) and poem_id in valid_poem_ids
             }
             flashcard_state["practice_poems"] = valid_practice
 
-    # Validate and import current_index
-    if "current_index" in import_data:
-        current_idx = import_data["current_index"]
-        if isinstance(current_idx, int) and 0 <= current_idx < total_poems:
-            flashcard_state["current_index"] = current_idx
+    # Validate and import current_id
+    if "current_id" in import_data:
+        current_id = import_data["current_id"]
+        if isinstance(current_id, str) and current_id in valid_poem_ids:
+            flashcard_state["current_id"] = current_id
 
     # Ensure no overlap between known and practice (known takes priority)
     known_set = flashcard_state.get("known_poems", set())
@@ -212,16 +389,29 @@ def initialize_flashcard_session(poems: list[dict], user_id: str) -> dict:
     if not user_id or not isinstance(user_id, str):
         user_id = "guest"
 
+    # Get default current_id (first poem's ID)
+    # If no poems have IDs, we'll need to fall back to index-based system
+    default_id = ""
+    if poems:
+        # Find first poem with an ID
+        for poem in poems:
+            if poem.get("id"):
+                default_id = poem["id"]
+                break
+
+    # Get all poem IDs for filtered list (only poems with IDs)
+    all_ids = [poem.get("id") for poem in poems if poem.get("id")]
+
     # Start with default values
     state = {
-        "current_index": 0,
+        "current_id": default_id,
         "poems": poems,
         "known_poems": set(),
         "practice_poems": set(),
         "revealed": False,
         "filter_mode": "all",
         "shuffle": True,  # Enabled by default
-        "filtered_indices": list(range(len(poems))),
+        "filtered_ids": all_ids.copy(),
         "study_count": 0,
         "user_id": user_id,  # Store user_id in state
     }
@@ -229,16 +419,22 @@ def initialize_flashcard_session(poems: list[dict], user_id: str) -> dict:
     # Try to load saved progress for this user (only if not guest)
     saved_progress = None
     if user_id != "guest":
-        saved_progress = load_progress(user_id)
+        saved_progress = load_progress(user_id, poems)
 
     if saved_progress:
         # Restore persistent data
         state["known_poems"] = saved_progress.get("known_poems", set())
         state["practice_poems"] = saved_progress.get("practice_poems", set())
         # Optionally restore last position (but validate it's still valid)
-        last_index = saved_progress.get("current_index", 0)
-        if 0 <= last_index < len(poems):
-            state["current_index"] = last_index
+        last_id = saved_progress.get("current_id", "")
+        if last_id and any(poem.get("id") == last_id for poem in poems):
+            state["current_id"] = last_id
+        elif not state["current_id"] and poems:
+            # If saved ID is invalid and we don't have a default, use first poem with ID
+            for poem in poems:
+                if poem.get("id"):
+                    state["current_id"] = poem["id"]
+                    break
         # Show when progress was last saved
         state["last_saved"] = saved_progress.get("last_updated", "")
 
@@ -249,8 +445,13 @@ def get_current_flashcard(flashcard_state: dict) -> Optional[dict]:
     """
     Get the current flashcard poem.
     """
-    if flashcard_state["current_index"] < len(flashcard_state["poems"]):
-        return flashcard_state["poems"][flashcard_state["current_index"]]
+    current_id = flashcard_state.get("current_id", "")
+    if not current_id:
+        return None
+
+    for poem in flashcard_state["poems"]:
+        if poem.get("id") == current_id:
+            return poem
     return None
 
 
@@ -259,11 +460,12 @@ def mark_as_known(flashcard_state: dict, save: bool = True) -> dict:
     Mark current poem as known.
     Automatically saves progress unless save=False.
     """
-    current_idx = flashcard_state["current_index"]
-    flashcard_state["known_poems"].add(current_idx)
-    if current_idx in flashcard_state["practice_poems"]:
-        flashcard_state["practice_poems"].remove(current_idx)
-    flashcard_state["study_count"] = flashcard_state.get("study_count", 0) + 1
+    current_id = flashcard_state.get("current_id", "")
+    if current_id:
+        flashcard_state["known_poems"].add(current_id)
+        if current_id in flashcard_state["practice_poems"]:
+            flashcard_state["practice_poems"].remove(current_id)
+        flashcard_state["study_count"] = flashcard_state.get("study_count", 0) + 1
 
     if save:
         save_progress(flashcard_state)
@@ -276,11 +478,12 @@ def mark_for_practice(flashcard_state: dict, save: bool = True) -> dict:
     Mark current poem as needing practice.
     Automatically saves progress unless save=False.
     """
-    current_idx = flashcard_state["current_index"]
-    flashcard_state["practice_poems"].add(current_idx)
-    if current_idx in flashcard_state["known_poems"]:
-        flashcard_state["known_poems"].remove(current_idx)
-    flashcard_state["study_count"] = flashcard_state.get("study_count", 0) + 1
+    current_id = flashcard_state.get("current_id", "")
+    if current_id:
+        flashcard_state["practice_poems"].add(current_id)
+        if current_id in flashcard_state["known_poems"]:
+            flashcard_state["known_poems"].remove(current_id)
+        flashcard_state["study_count"] = flashcard_state.get("study_count", 0) + 1
 
     if save:
         save_progress(flashcard_state)
@@ -294,24 +497,27 @@ def next_flashcard(flashcard_state: dict, save: bool = True) -> dict:
     Respects filter mode if active.
     If save is True, saves current position to file.
     """
-    filtered_indices = flashcard_state.get(
-        "filtered_indices", list(range(len(flashcard_state["poems"])))
-    )
+    filtered_ids = flashcard_state.get("filtered_ids", [])
+    if not filtered_ids:
+        # Fallback: get all poem IDs
+        filtered_ids = [
+            poem.get("id") for poem in flashcard_state["poems"] if poem.get("id")
+        ]
 
-    if not filtered_indices:
+    if not filtered_ids:
         return flashcard_state
 
-    current_idx = flashcard_state["current_index"]
+    current_id = flashcard_state.get("current_id", "")
 
     # Find current position in filtered list
     try:
-        current_pos = filtered_indices.index(current_idx)
-        next_pos = (current_pos + 1) % len(filtered_indices)
+        current_pos = filtered_ids.index(current_id)
+        next_pos = (current_pos + 1) % len(filtered_ids)
     except ValueError:
-        # Current index not in filtered list, go to first
+        # Current ID not in filtered list, go to first
         next_pos = 0
 
-    flashcard_state["current_index"] = filtered_indices[next_pos]
+    flashcard_state["current_id"] = filtered_ids[next_pos]
     flashcard_state["revealed"] = False
 
     if save:
@@ -326,24 +532,27 @@ def previous_flashcard(flashcard_state: dict, save: bool = True) -> dict:
     Respects filter mode if active.
     If save is True, saves current position to file.
     """
-    filtered_indices = flashcard_state.get(
-        "filtered_indices", list(range(len(flashcard_state["poems"])))
-    )
+    filtered_ids = flashcard_state.get("filtered_ids", [])
+    if not filtered_ids:
+        # Fallback: get all poem IDs
+        filtered_ids = [
+            poem.get("id") for poem in flashcard_state["poems"] if poem.get("id")
+        ]
 
-    if not filtered_indices:
+    if not filtered_ids:
         return flashcard_state
 
-    current_idx = flashcard_state["current_index"]
+    current_id = flashcard_state.get("current_id", "")
 
     # Find current position in filtered list
     try:
-        current_pos = filtered_indices.index(current_idx)
-        prev_pos = (current_pos - 1) % len(filtered_indices)
+        current_pos = filtered_ids.index(current_id)
+        prev_pos = (current_pos - 1) % len(filtered_ids)
     except ValueError:
-        # Current index not in filtered list, go to last
-        prev_pos = len(filtered_indices) - 1
+        # Current ID not in filtered list, go to last
+        prev_pos = len(filtered_ids) - 1
 
-    flashcard_state["current_index"] = filtered_indices[prev_pos]
+    flashcard_state["current_id"] = filtered_ids[prev_pos]
     flashcard_state["revealed"] = False
 
     if save:
@@ -380,50 +589,62 @@ def get_progress_stats(flashcard_state: dict) -> dict:
     }
 
 
-def get_filtered_indices(flashcard_state: dict) -> list[int]:
+def get_filtered_ids(flashcard_state: dict) -> list[str]:
     """
-    Get list of poem indices based on current filter mode.
+    Get list of poem IDs based on current filter mode.
     """
     filter_mode = flashcard_state.get("filter_mode", "all")
     known = flashcard_state.get("known_poems", set())
     practice = flashcard_state.get("practice_poems", set())
-    total = len(flashcard_state["poems"])
+    poems = flashcard_state["poems"]
+
+    # Get all poem IDs
+    all_ids = [poem.get("id") for poem in poems if poem.get("id")]
 
     if filter_mode == "all":
-        indices = list(range(total))
+        ids = all_ids
     elif filter_mode == "practice":
-        indices = list(practice)
+        ids = [poem_id for poem_id in all_ids if poem_id in practice]
     elif filter_mode == "unknown":
-        indices = [i for i in range(total) if i not in known and i not in practice]
+        ids = [
+            poem_id
+            for poem_id in all_ids
+            if poem_id not in known and poem_id not in practice
+        ]
     elif filter_mode == "known":
-        indices = list(known)
+        ids = [poem_id for poem_id in all_ids if poem_id in known]
     else:
-        indices = list(range(total))
+        ids = all_ids
 
     # Shuffle if enabled
     if flashcard_state.get("shuffle", False):
-        indices = indices.copy()
-        random.shuffle(indices)
+        ids = ids.copy()
+        random.shuffle(ids)
 
-    return indices
+    return ids
 
 
 def apply_filter(flashcard_state: dict, save: bool = True) -> dict:
     """
-    Apply filter and update filtered_indices.
+    Apply filter and update filtered_ids.
     If save is True, saves current state to file.
     """
-    flashcard_state["filtered_indices"] = get_filtered_indices(flashcard_state)
+    flashcard_state["filtered_ids"] = get_filtered_ids(flashcard_state)
 
     # Reset to first card in filtered list
-    if flashcard_state["filtered_indices"]:
+    if flashcard_state["filtered_ids"]:
         # Try to keep current poem if it's in filtered list
-        current_idx = flashcard_state.get("current_index", 0)
-        if current_idx not in flashcard_state["filtered_indices"]:
-            flashcard_state["current_index"] = flashcard_state["filtered_indices"][0]
+        current_id = flashcard_state.get("current_id", "")
+        if current_id not in flashcard_state["filtered_ids"]:
+            flashcard_state["current_id"] = flashcard_state["filtered_ids"][0]
             flashcard_state["revealed"] = False
     else:
-        flashcard_state["current_index"] = 0
+        # No filtered poems, set to empty or first available
+        poems = flashcard_state.get("poems", [])
+        if poems and poems[0].get("id"):
+            flashcard_state["current_id"] = poems[0]["id"]
+        else:
+            flashcard_state["current_id"] = ""
         flashcard_state["revealed"] = False
 
     if save:
@@ -441,21 +662,39 @@ def jump_to_next_practice(flashcard_state: dict, save: bool = True) -> dict:
     if not practice_poems:
         return flashcard_state
 
-    current_idx = flashcard_state.get("current_index", 0)
+    current_id = flashcard_state.get("current_id", "")
+    poems = flashcard_state.get("poems", [])
+
+    # Get current index for comparison
+    current_idx = None
+    if current_id:
+        current_idx = get_poem_index_by_id(poems, current_id)
 
     # Find next practice poem after current
-    next_practice = None
-    for idx in sorted(practice_poems):
-        if idx > current_idx:
-            next_practice = idx
-            break
+    next_practice_id = None
+    if current_idx is not None:
+        for poem in poems:
+            poem_id = poem.get("id")
+            if poem_id and poem_id in practice_poems:
+                poem_idx = get_poem_index_by_id(poems, poem_id)
+                if poem_idx is not None and poem_idx > current_idx:
+                    next_practice_id = poem_id
+                    break
 
     # If none found, wrap around to first practice poem
-    if next_practice is None and practice_poems:
-        next_practice = min(practice_poems)
+    if next_practice_id is None and practice_poems:
+        # Find first practice poem by index
+        practice_indices = []
+        for poem_id in practice_poems:
+            idx = get_poem_index_by_id(poems, poem_id)
+            if idx is not None:
+                practice_indices.append((idx, poem_id))
+        if practice_indices:
+            practice_indices.sort()
+            next_practice_id = practice_indices[0][1]
 
-    if next_practice is not None:
-        flashcard_state["current_index"] = next_practice
+    if next_practice_id:
+        flashcard_state["current_id"] = next_practice_id
         flashcard_state["revealed"] = False
 
         if save:
@@ -471,27 +710,50 @@ def jump_to_next_unknown(flashcard_state: dict, save: bool = True) -> dict:
     """
     known = flashcard_state.get("known_poems", set())
     practice = flashcard_state.get("practice_poems", set())
-    total = len(flashcard_state["poems"])
+    poems = flashcard_state.get("poems", [])
 
-    unknown_poems = [i for i in range(total) if i not in known and i not in practice]
-    if not unknown_poems:
+    # Get unknown poem IDs
+    unknown_poem_ids = [
+        poem.get("id")
+        for poem in poems
+        if poem.get("id")
+        and poem.get("id") not in known
+        and poem.get("id") not in practice
+    ]
+
+    if not unknown_poem_ids:
         return flashcard_state
 
-    current_idx = flashcard_state.get("current_index", 0)
+    current_id = flashcard_state.get("current_id", "")
+    current_idx = None
+    if current_id:
+        current_idx = get_poem_index_by_id(poems, current_id)
 
     # Find next unknown poem after current
-    next_unknown = None
-    for idx in sorted(unknown_poems):
-        if idx > current_idx:
-            next_unknown = idx
-            break
+    next_unknown_id = None
+    if current_idx is not None:
+        for poem in poems:
+            poem_id = poem.get("id")
+            if poem_id and poem_id in unknown_poem_ids:
+                poem_idx = get_poem_index_by_id(poems, poem_id)
+                if poem_idx is not None and poem_idx > current_idx:
+                    next_unknown_id = poem_id
+                    break
 
     # If none found, wrap around to first unknown poem
-    if next_unknown is None and unknown_poems:
-        next_unknown = min(unknown_poems)
+    if next_unknown_id is None and unknown_poem_ids:
+        # Find first unknown poem by index
+        unknown_indices = []
+        for poem_id in unknown_poem_ids:
+            idx = get_poem_index_by_id(poems, poem_id)
+            if idx is not None:
+                unknown_indices.append((idx, poem_id))
+        if unknown_indices:
+            unknown_indices.sort()
+            next_unknown_id = unknown_indices[0][1]
 
-    if next_unknown is not None:
-        flashcard_state["current_index"] = next_unknown
+    if next_unknown_id:
+        flashcard_state["current_id"] = next_unknown_id
         flashcard_state["revealed"] = False
 
         if save:
@@ -517,10 +779,13 @@ def get_current_poem_status(flashcard_state: dict) -> str:
     """
     Get status of current poem: 'known', 'practice', or 'unknown'.
     """
-    current_idx = flashcard_state.get("current_index", 0)
-    if current_idx in flashcard_state.get("known_poems", set()):
+    current_id = flashcard_state.get("current_id", "")
+    if not current_id:
+        return "unknown"
+
+    if current_id in flashcard_state.get("known_poems", set()):
         return "known"
-    elif current_idx in flashcard_state.get("practice_poems", set()):
+    elif current_id in flashcard_state.get("practice_poems", set()):
         return "practice"
     else:
         return "unknown"
@@ -531,13 +796,15 @@ def jump_to_poem(flashcard_state: dict, poem_index: int, save: bool = True) -> d
     Jump to a specific poem by index.
     If save is True, automatically saves progress to file.
     """
-    total = len(flashcard_state["poems"])
-    if 0 <= poem_index < total:
-        flashcard_state["current_index"] = poem_index
-        flashcard_state["revealed"] = False
+    poems = flashcard_state.get("poems", [])
+    if 0 <= poem_index < len(poems):
+        poem_id = get_poem_id_by_index(poems, poem_index)
+        if poem_id:
+            flashcard_state["current_id"] = poem_id
+            flashcard_state["revealed"] = False
 
-        if save:
-            save_progress(flashcard_state)
+            if save:
+                save_progress(flashcard_state)
 
     return flashcard_state
 
@@ -560,6 +827,7 @@ def get_all_authors(poems: list[dict]) -> list[str]:
 def get_poems_by_author(poems: list[dict], author: str) -> list[int]:
     """
     Get list of poem indices for a specific author, sorted by poem title pinyin.
+    Returns indices (for backward compatibility with app.py).
     """
     indices_with_titles = []
     for idx, poem in enumerate(poems):

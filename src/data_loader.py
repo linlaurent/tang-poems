@@ -1,13 +1,14 @@
 """Data loading module for Tang poems."""
 
-import requests
-import streamlit as st
-from typing import List, Dict, Optional
 import json
 from pathlib import Path
+from typing import Optional
+
+import requests
+import streamlit as st
 
 
-def fetch_poems_from_api() -> List[Dict]:
+def fetch_poems_from_api() -> list[dict]:
     """
     Fetch Tang poems from a public API.
     Returns a list of poem dictionaries with structure:
@@ -54,7 +55,7 @@ def fetch_poems_from_api() -> List[Dict]:
         return get_fallback_poems()
 
 
-def get_fallback_poems() -> List[Dict]:
+def get_fallback_poems() -> list[dict]:
     """
     Fallback poem data if API fails.
     Returns a sample of famous Tang poems.
@@ -98,16 +99,16 @@ def get_fallback_poems() -> List[Dict]:
     ]
 
 
-def transform_poem_format(poem: Dict) -> Dict:
+def transform_poem_format(poem: dict) -> dict:
     """
     Transform poem from source format to application format.
     Source format: {title, author, paragraphs: [str], tags, id}
-    Target format: {title, author, dynasty, content: str, translation}
+    Target format: {title, author, dynasty, content: str, translation, id}
     """
     paragraphs = poem.get("paragraphs", [])
     content = "\n".join(paragraphs) if paragraphs else ""
 
-    return {
+    result = {
         "title": poem.get("title", "无题"),
         "author": poem.get("author", "未知"),
         "dynasty": "唐",  # All poems in 唐诗三百首 are from Tang dynasty
@@ -115,8 +116,14 @@ def transform_poem_format(poem: Dict) -> Dict:
         "translation": "",  # No translation in source data
     }
 
+    # Preserve id field if it exists
+    if "id" in poem:
+        result["id"] = poem["id"]
 
-def load_poems_from_local() -> Optional[List[Dict]]:
+    return result
+
+
+def load_poems_from_local() -> Optional[list[dict]]:
     """
     Load poems from local JSON file if it exists.
     Supports both 唐诗三百首.json and tang_poems.json formats.
@@ -134,7 +141,7 @@ def load_poems_from_local() -> Optional[List[Dict]]:
             poems_file = data_dir / "tang_poems.json"
 
         if poems_file.exists():
-            with open(poems_file, "r", encoding="utf-8") as f:
+            with open(poems_file, encoding="utf-8") as f:
                 poems_data = json.load(f)
 
                 if poems_data and isinstance(poems_data, list):
@@ -155,14 +162,14 @@ def load_poems_from_local() -> Optional[List[Dict]]:
         try:
             if st:
                 st.warning(f"加载本地数据时出错: {e}")
-        except:
+        except Exception:
             # If st is not available (e.g., when called from script), print instead
             print(f"加载本地数据时出错: {e}")
 
     return None
 
 
-def load_poems() -> List[Dict]:
+def load_poems() -> list[dict]:
     """
     Load poems with caching in session state.
     Prefers local file over API.
@@ -180,7 +187,7 @@ def load_poems() -> List[Dict]:
     return st.session_state.poems
 
 
-def search_poems(poems: List[Dict], query: str) -> List[Dict]:
+def search_poems(poems: list[dict], query: str) -> list[dict]:
     """
     Search poems by title, author, or content.
     Handles Chinese characters properly (no case conversion needed).
@@ -212,10 +219,32 @@ def search_poems(poems: List[Dict], query: str) -> List[Dict]:
     return results
 
 
-def get_poem_by_id(poems: List[Dict], poem_id: int) -> Optional[Dict]:
+def get_poem_by_id(poems: list[dict], poem_id: str) -> Optional[dict]:
     """
-    Get a specific poem by index.
+    Get a specific poem by ID (string UUID).
     """
-    if 0 <= poem_id < len(poems):
-        return poems[poem_id]
+    for poem in poems:
+        if poem.get("id") == poem_id:
+            return poem
+    return None
+
+
+def get_poem_index_by_id(poems: list[dict], poem_id: str) -> Optional[int]:
+    """
+    Get the index of a poem by its ID.
+    Returns None if not found.
+    """
+    for idx, poem in enumerate(poems):
+        if poem.get("id") == poem_id:
+            return idx
+    return None
+
+
+def get_poem_id_by_index(poems: list[dict], index: int) -> Optional[str]:
+    """
+    Get the ID of a poem by its index.
+    Returns None if index is out of range or poem has no ID.
+    """
+    if 0 <= index < len(poems):
+        return poems[index].get("id")
     return None
