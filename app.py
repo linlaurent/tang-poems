@@ -6,6 +6,14 @@ from datetime import datetime
 import streamlit as st
 from pypinyin import lazy_pinyin
 
+from src.analytics import (
+    calculate_streaks,
+    format_timeline_data,
+    get_learning_timeline,
+    get_poem_analytics,
+    get_recommendations,
+    get_study_stats,
+)
 from src.data_loader import load_poems, search_poems
 from src.flashcards import (
     apply_filter,
@@ -19,6 +27,7 @@ from src.flashcards import (
     initialize_flashcard_session,
     jump_to_next_unknown,
     jump_to_poem,
+    load_log,
     mark_as_known,
     mark_for_practice,
     next_flashcard,
@@ -401,6 +410,14 @@ def flashcard_mode():
 
     flashcard_state = st.session_state.flashcard_state
 
+    # Handle jump from analytics
+    if "jump_to_index" in st.session_state:
+        jump_idx = st.session_state.pop("jump_to_index")
+        if 0 <= jump_idx < len(poems):
+            flashcard_state = jump_to_poem(flashcard_state, jump_idx, save=False)
+            st.session_state.flashcard_state = flashcard_state
+            st.rerun()
+
     # Progress stats
     stats = get_progress_stats(flashcard_state)
 
@@ -551,7 +568,7 @@ def flashcard_mode():
 
                     if st.button(
                         "📍 跳转到此诗",
-                        use_container_width=True,
+                        width="stretch",
                         key="jump_search_result",
                     ):
                         selected_option_idx = result_options.index(
@@ -622,7 +639,7 @@ def flashcard_mode():
 
                     if st.button(
                         "📍 跳转到此诗",
-                        use_container_width=True,
+                        width="stretch",
                         key="jump_author_poem",
                     ):
                         # Extract index from selection
@@ -672,9 +689,7 @@ def flashcard_mode():
                 key="poem_select_all_flashcard",
             )
 
-            if st.button(
-                "📍 跳转到此诗", use_container_width=True, key="jump_all_poem"
-            ):
+            if st.button("📍 跳转到此诗", width="stretch", key="jump_all_poem"):
                 selected_option_idx = poem_options.index(selected_poem)
                 selected_idx = poem_index_map[selected_option_idx]
                 flashcard_state = jump_to_poem(flashcard_state, selected_idx)
@@ -727,7 +742,7 @@ def flashcard_mode():
 
         # Reveal button
         if not flashcard_state["revealed"]:
-            if st.button("🔓 显示内容", type="primary", use_container_width=True):
+            if st.button("🔓 显示内容", type="primary", width="stretch"):
                 flashcard_state = reveal_content(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
@@ -747,7 +762,7 @@ def flashcard_mode():
             with col1:
                 if st.button(
                     "✅ 已掌握",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary"
                     if flashcard_state.get("current_id", "")
                     in flashcard_state["known_poems"]
@@ -760,7 +775,7 @@ def flashcard_mode():
             with col2:
                 if st.button(
                     "📝 需练习",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary"
                     if flashcard_state.get("current_id", "")
                     in flashcard_state["practice_poems"]
@@ -790,9 +805,7 @@ def flashcard_mode():
 
         col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
         with col1:
-            if st.button(
-                "◀ 上一张", use_container_width=True, disabled=(not filtered_ids)
-            ):
+            if st.button("◀ 上一张", width="stretch", disabled=(not filtered_ids)):
                 flashcard_state = previous_flashcard(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
@@ -813,15 +826,13 @@ def flashcard_mode():
                 st.warning("当前筛选模式下无诗歌")
 
         with col3:
-            if st.button(
-                "下一张 ▶", use_container_width=True, disabled=(not filtered_ids)
-            ):
+            if st.button("下一张 ▶", width="stretch", disabled=(not filtered_ids)):
                 flashcard_state = next_flashcard(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
 
         with col4:
-            if st.button("🔍 跳到下一首未学习", use_container_width=True):
+            if st.button("🔍 跳到下一首未学习", width="stretch"):
                 flashcard_state = jump_to_next_unknown(flashcard_state)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
@@ -845,7 +856,7 @@ def flashcard_mode():
                 data=export_json,
                 file_name=filename,
                 mime="application/json",
-                use_container_width=True,
+                width="stretch",
                 help="下载当前学习进度为JSON文件",
             )
 
@@ -884,7 +895,7 @@ def flashcard_mode():
 
                         if st.button(
                             "✅ 确认导入",
-                            use_container_width=True,
+                            width="stretch",
                             key="confirm_import",
                         ):
                             # Import the data
@@ -909,7 +920,7 @@ def flashcard_mode():
             # Reset progress button
             if st.button(
                 "🔄 重置所有进度",
-                use_container_width=True,
+                width="stretch",
                 type="secondary",
             ):
                 if st.session_state.get("confirm_reset", False):
@@ -925,6 +936,266 @@ def flashcard_mode():
 
         if st.session_state.get("confirm_reset", False):
             st.info("⚠️ 点击上方的'重置所有进度'按钮以确认重置")
+
+
+def analytics_mode():
+    """Analytics mode: Display learning analytics and insights."""
+    st.header("📊 数据分析")
+
+    # Get user ID
+    user_id = get_user_id()
+
+    if user_id == "guest":
+        st.warning("⚠️ 访客模式无法查看数据分析。请登录以保存学习进度并生成分析。")
+        return
+
+    # Load poems and logs
+    poems = load_poems()
+    if not poems:
+        st.error("无法加载诗歌数据。")
+        return
+
+    log_entries = load_log(user_id)
+
+    if not log_entries:
+        st.info(
+            "📝 您还没有学习数据。开始使用闪卡模式学习诗歌，"
+            "系统会自动记录您的学习进度并生成分析。"
+        )
+        return
+
+    # Initialize flashcard state to get current progress
+    flashcard_state = initialize_flashcard_session(poems, user_id)
+
+    # Calculate analytics
+    timeline = get_learning_timeline(log_entries)
+    study_stats = get_study_stats(log_entries)
+    poem_analytics = get_poem_analytics(log_entries, poems)
+    recommendations = get_recommendations(log_entries, flashcard_state, poems)
+
+    # Update distribution from current state
+    current_stats = get_progress_stats(flashcard_state)
+    poem_analytics["distribution"] = {
+        "known": current_stats["known"],
+        "practice": current_stats["practice"],
+        "unknown": current_stats["remaining"],
+    }
+
+    # Overview Metrics Section
+    st.subheader("📈 概览指标")
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        st.metric("已掌握诗歌", current_stats["known"])
+
+    with col2:
+        st.metric("需练习诗歌", current_stats["practice"])
+
+    with col3:
+        st.metric("学习天数", study_stats["total_sessions"])
+
+    with col4:
+        st.metric("当前连续", f"{study_stats['current_streak']} 天")
+
+    with col5:
+        st.metric("最长连续", f"{study_stats['longest_streak']} 天")
+
+    # Additional stats row
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("平均每天学习", f"{study_stats['average_poems_per_session']:.1f} 首")
+    with col2:
+        streak_info = calculate_streaks(log_entries)
+        first_date = streak_info.get("first_activity")
+        if first_date:
+            try:
+                first_dt = datetime.fromisoformat(first_date)
+                days_active = (datetime.now().date() - first_dt.date()).days + 1
+                st.metric("总学习天数", days_active)
+            except (ValueError, AttributeError):
+                st.metric("总学习天数", "N/A")
+        else:
+            st.metric("总学习天数", "N/A")
+    with col3:
+        st.metric("总学习次数", study_stats["total_events"])
+
+    st.divider()
+
+    # Learning Progress Timeline Section
+    st.subheader("📅 学习进度时间线")
+
+    if timeline:
+        cumulative_df, daily_df = format_timeline_data(timeline)
+
+        # Cumulative progress chart
+        st.write("**累计学习进度**")
+        if cumulative_df is not None:
+            try:
+                st.line_chart(
+                    cumulative_df.set_index("日期")[["累计已掌握", "累计学习"]]
+                )
+            except Exception:
+                # Fallback if pandas not available
+                st.info("需要 pandas 库来显示图表")
+
+        # Daily activity chart
+        st.write("**每日学习活动**")
+        if daily_df is not None:
+            try:
+                st.bar_chart(daily_df.set_index("日期")[["已掌握", "需练习"]])
+            except Exception:
+                st.info("需要 pandas 库来显示图表")
+
+        # Most active days
+        if study_stats["most_active_days"]:
+            st.write("**最活跃的学习日**")
+            for day_info in study_stats["most_active_days"][:5]:
+                st.write(f"- {day_info['date']}: {day_info['count']} 首诗歌")
+    else:
+        st.info("暂无时间线数据")
+
+    st.divider()
+
+    # Poem-Level Analytics Section
+    st.subheader("📚 诗歌级别分析")
+
+    # Most studied poems
+    if poem_analytics["most_studied"]:
+        st.write("**学习次数最多的诗歌**")
+        most_studied_data = []
+        for item in poem_analytics["most_studied"][:10]:
+            poem_id = item["poem_id"]
+            poem = next((p for p in poems if p.get("id") == poem_id), None)
+            if poem:
+                most_studied_data.append(
+                    {
+                        "标题": poem.get("title", "未知"),
+                        "作者": poem.get("author", "未知"),
+                        "状态变化次数": item["change_count"],
+                    }
+                )
+
+        if most_studied_data:
+            st.dataframe(most_studied_data, width="stretch", hide_index=True)
+
+    # Poems needing attention (in practice > 7 days)
+    practice_poems = flashcard_state.get("practice_poems", set())
+    if practice_poems:
+        st.write("**需要关注的诗歌（在练习列表中超过7天）**")
+        needs_attention = [
+            rec for rec in recommendations if rec.get("type") == "review_practice"
+        ]
+        if needs_attention:
+            attention_data = []
+            for rec in needs_attention[:10]:
+                poem_id = rec.get("poem_id")
+                poem = next((p for p in poems if p.get("id") == poem_id), None)
+                if poem:
+                    attention_data.append(
+                        {
+                            "标题": poem.get("title", "未知"),
+                            "作者": poem.get("author", "未知"),
+                            "在练习列表天数": rec.get("days_in_practice", 0),
+                        }
+                    )
+            if attention_data:
+                st.dataframe(attention_data, width="stretch", hide_index=True)
+        else:
+            st.info("所有练习列表中的诗歌都是最近添加的")
+
+    st.divider()
+
+    # Recommendations Section
+    st.subheader("💡 学习建议")
+
+    if recommendations:
+        for rec in recommendations[:10]:  # Show top 10
+            rec_type = rec.get("type", "")
+            priority = rec.get("priority", "low")
+            message = rec.get("message", "")
+
+            # Color code by priority
+            if priority == "high":
+                st.warning(f"🔴 **高优先级**: {message}")
+            elif priority == "medium":
+                st.info(f"🟡 **中优先级**: {message}")
+            else:
+                st.success(f"🟢 **建议**: {message}")
+
+            # Add jump-to action for poem-specific recommendations
+            poem_id = rec.get("poem_id")
+            if poem_id and rec_type == "review_practice":
+                poem_title = next(
+                    (p.get("title", "") for p in poems if p.get("id") == poem_id),
+                    "此诗",
+                )
+                if st.button(
+                    f"📍 跳转到《{poem_title}》",
+                    key=f"jump_rec_{poem_id}",
+                ):
+                    # Store in session state to trigger jump
+                    st.session_state["analytics_jump_to"] = poem_id
+                    st.rerun()
+    else:
+        st.info("暂无建议。继续学习以生成个性化建议！")
+
+    # Handle jump-to action from recommendations
+    if "analytics_jump_to" in st.session_state:
+        jump_poem_id = st.session_state.pop("analytics_jump_to")
+        # Switch to flashcard mode and jump to poem
+        poem_idx = next(
+            (i for i, p in enumerate(poems) if p.get("id") == jump_poem_id),
+            None,
+        )
+        if poem_idx is not None:
+            st.session_state["switch_to_flashcard"] = True
+            st.session_state["jump_to_index"] = poem_idx
+
+    st.divider()
+
+    # Export Section
+    st.subheader("📤 导出数据")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Export analytics as JSON
+        analytics_export = {
+            "user_id": user_id,
+            "exported_at": datetime.now().isoformat(),
+            "study_stats": study_stats,
+            "poem_analytics": {
+                "most_studied": poem_analytics["most_studied"],
+                "distribution": poem_analytics["distribution"],
+            },
+            "recommendations": recommendations,
+        }
+        export_json = json.dumps(analytics_export, ensure_ascii=False, indent=2)
+        filename = f"analytics_{user_id}_{timestamp}.json"
+        st.download_button(
+            label="📥 导出分析数据 (JSON)",
+            data=export_json,
+            file_name=filename,
+            mime="application/json",
+            width="stretch",
+        )
+
+    with col2:
+        # Export timeline as CSV
+        if timeline and daily_df is not None:
+            try:
+                csv_data = daily_df.to_csv(index=False)
+                csv_filename = f"timeline_{user_id}_{timestamp}.csv"
+                st.download_button(
+                    label="📥 导出时间线 (CSV)",
+                    data=csv_data,
+                    file_name=csv_filename,
+                    mime="text/csv",
+                    width="stretch",
+                )
+            except Exception:
+                st.info("CSV导出需要pandas库")
 
 
 def main():
@@ -961,9 +1232,14 @@ def main():
 
         mode = st.radio(
             "选择学习模式：",
-            ["🃏 闪卡模式", "📖 浏览模式", "🎯 测验模式"],
+            ["🃏 闪卡模式", "📖 浏览模式", "🎯 测验模式", "📊 数据分析"],
             label_visibility="collapsed",
         )
+
+    # Handle mode switching from analytics
+    if st.session_state.get("switch_to_flashcard", False):
+        st.session_state["switch_to_flashcard"] = False
+        mode = "🃏 闪卡模式"
 
     # Route to appropriate mode
     if "闪卡模式" in mode:
@@ -972,6 +1248,8 @@ def main():
         display_mode()
     elif "测验模式" in mode:
         quiz_mode()
+    elif "数据分析" in mode:
+        analytics_mode()
 
 
 if __name__ == "__main__":

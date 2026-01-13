@@ -174,5 +174,8 @@ Thumbs.db
 data/flashcard_progress.json
 data/users/flashcard_progress_*.json
 
+# User log files (user-specific learning logs, should not be committed)
+data/users/flashcard_log_*.json
+
 # Deduplication log files
 data/deduplication_log.json

@@ -56,6 +56,137 @@ def get_progress_file_path(user_id: str) -> Path:
     return user_dir / f"flashcard_progress_{safe_user_id}.json"
 
 
+def get_log_file_path(user_id: str) -> Path:
+    """Get the path to the change log file for a specific user."""
+    # Validate user_id
+    if not user_id or not isinstance(user_id, str):
+        user_id = "guest"
+
+    try:
+        # Try to get path relative to current file location
+        current_file = Path(__file__)
+        project_root = current_file.parent.parent
+    except (AttributeError, OSError):
+        # Fallback to current working directory if __file__ is not available
+        project_root = Path.cwd()
+
+    data_dir = project_root / "data"
+    try:
+        data_dir.mkdir(exist_ok=True, parents=True)
+    except (OSError, PermissionError) as e:
+        print(f"Warning: Could not create data directory: {e}")
+        # Fallback to a temporary or current directory
+        data_dir = Path.cwd() / "data"
+        data_dir.mkdir(exist_ok=True, parents=True)
+
+    # Create user-specific subdirectory
+    user_dir = data_dir / "users"
+    try:
+        user_dir.mkdir(exist_ok=True, parents=True)
+    except (OSError, PermissionError) as e:
+        print(f"Warning: Could not create users directory: {e}")
+        # Fallback: use data_dir directly
+        user_dir = data_dir
+
+    # Sanitize user_id for filename (replace special chars)
+    safe_user_id = "".join(
+        c if c.isalnum() or c in ("-", "_", "@", ".") else "_" for c in user_id
+    )
+    return user_dir / f"flashcard_log_{safe_user_id}.json"
+
+
+def log_change(
+    user_id: str,
+    event_type: str,
+    poem_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> bool:
+    """
+    Log a change event to the user's log file.
+    Appends to log file to maintain history.
+
+    Args:
+        user_id: User identifier
+        event_type: Type of event (marked_known, marked_practice, reset_progress, etc.)
+        poem_id: Poem ID if applicable (None for events like reset_progress)
+        metadata: Additional metadata about the event
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not user_id or user_id == "guest":
+        # Don't log for guest users
+        return False
+
+    log_file = get_log_file_path(user_id)
+
+    try:
+        # Prepare log entry
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "event_type": event_type,
+        }
+
+        if poem_id is not None:
+            log_entry["poem_id"] = poem_id
+
+        if metadata:
+            log_entry["metadata"] = metadata
+
+        # Load existing logs or create new list
+        log_entries = []
+        if log_file.exists():
+            try:
+                with open(log_file, encoding="utf-8") as f:
+                    log_entries = json.load(f)
+                    if not isinstance(log_entries, list):
+                        log_entries = []
+            except (json.JSONDecodeError, OSError):
+                # If file is corrupted, start fresh
+                log_entries = []
+
+        # Append new entry
+        log_entries.append(log_entry)
+
+        # Write back to file
+        with open(log_file, "w", encoding="utf-8") as f:
+            json.dump(log_entries, f, ensure_ascii=False, indent=2)
+
+        return True
+    except Exception as e:
+        print(f"Error logging change: {e}")
+        return False
+
+
+def load_log(user_id: str) -> list[dict]:
+    """
+    Load all log entries for a specific user.
+
+    Args:
+        user_id: User identifier
+
+    Returns:
+        List of log entries, empty list if file doesn't exist or is invalid
+    """
+    if not user_id or user_id == "guest":
+        return []
+
+    log_file = get_log_file_path(user_id)
+
+    if not log_file.exists():
+        return []
+
+    try:
+        with open(log_file, encoding="utf-8") as f:
+            log_entries = json.load(f)
+            if isinstance(log_entries, list):
+                return log_entries
+            return []
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Error loading log: {e}")
+        return []
+
+
 def migrate_progress_from_indices_to_ids(
     progress_data: dict, poems: list[dict]
 ) -> dict:
@@ -355,6 +486,18 @@ def import_progress_data(
     # Reset revealed state
     flashcard_state["revealed"] = False
 
+    # Log the import event
+    user_id = flashcard_state.get("user_id")
+    if user_id:
+        imported_known = len(flashcard_state.get("known_poems", set()))
+        imported_practice = len(flashcard_state.get("practice_poems", set()))
+        metadata = {
+            "imported_known": imported_known,
+            "imported_practice": imported_practice,
+            "total_imported": imported_known + imported_practice,
+        }
+        log_change(user_id, "imported", None, metadata)
+
     return flashcard_state
 
 
@@ -462,10 +605,29 @@ def mark_as_known(flashcard_state: dict, save: bool = True) -> dict:
     """
     current_id = flashcard_state.get("current_id", "")
     if current_id:
+        # Determine previous status
+        previous_status = None
+        if current_id in flashcard_state.get("practice_poems", set()):
+            previous_status = "practice"
+        elif current_id not in flashcard_state.get("known_poems", set()):
+            previous_status = "unknown"
+
         flashcard_state["known_poems"].add(current_id)
         if current_id in flashcard_state["practice_poems"]:
             flashcard_state["practice_poems"].remove(current_id)
         flashcard_state["study_count"] = flashcard_state.get("study_count", 0) + 1
+
+        # Log the change
+        user_id = flashcard_state.get("user_id")
+        if user_id:
+            metadata = {
+                "previous_status": previous_status,
+                "current_status": "known",
+                "study_count": flashcard_state.get("study_count", 0),
+                "total_known": len(flashcard_state.get("known_poems", set())),
+                "total_practice": len(flashcard_state.get("practice_poems", set())),
+            }
+            log_change(user_id, "marked_known", current_id, metadata)
 
     if save:
         save_progress(flashcard_state)
@@ -480,10 +642,29 @@ def mark_for_practice(flashcard_state: dict, save: bool = True) -> dict:
     """
     current_id = flashcard_state.get("current_id", "")
     if current_id:
+        # Determine previous status
+        previous_status = None
+        if current_id in flashcard_state.get("known_poems", set()):
+            previous_status = "known"
+        elif current_id not in flashcard_state.get("practice_poems", set()):
+            previous_status = "unknown"
+
         flashcard_state["practice_poems"].add(current_id)
         if current_id in flashcard_state["known_poems"]:
             flashcard_state["known_poems"].remove(current_id)
         flashcard_state["study_count"] = flashcard_state.get("study_count", 0) + 1
+
+        # Log the change
+        user_id = flashcard_state.get("user_id")
+        if user_id:
+            metadata = {
+                "previous_status": previous_status,
+                "current_status": "practice",
+                "study_count": flashcard_state.get("study_count", 0),
+                "total_known": len(flashcard_state.get("known_poems", set())),
+                "total_practice": len(flashcard_state.get("practice_poems", set())),
+            }
+            log_change(user_id, "marked_practice", current_id, metadata)
 
     if save:
         save_progress(flashcard_state)
@@ -767,6 +948,19 @@ def reset_progress(flashcard_state: dict) -> dict:
     Reset all progress (clear known and practice sets).
     Also deletes the progress file for this user.
     """
+    user_id = flashcard_state.get("user_id")
+
+    # Log the reset event before clearing
+    if user_id:
+        known_count = len(flashcard_state.get("known_poems", set()))
+        practice_count = len(flashcard_state.get("practice_poems", set()))
+        metadata = {
+            "cleared_known": known_count,
+            "cleared_practice": practice_count,
+            "total_cleared": known_count + practice_count,
+        }
+        log_change(user_id, "reset_progress", None, metadata)
+
     flashcard_state["known_poems"] = set()
     flashcard_state["practice_poems"] = set()
     flashcard_state["study_count"] = 0
