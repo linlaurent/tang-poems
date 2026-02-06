@@ -37,6 +37,7 @@ from src.flashcards import (
     save_progress,
 )
 from src.quiz import check_answer, get_next_question, initialize_quiz_session
+from src.stroke_widget import render_poem_with_strokes
 
 # Page configuration
 st.set_page_config(
@@ -747,15 +748,14 @@ def flashcard_mode():
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
         else:
-            # Show poem content
-            st.markdown(
-                f"""
-            <div class="poem-card">
-                <div class="poem-content">{current_poem["content"]}</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
+            # Show poem content with interactive stroke order
+            from streamlit.components.v1 import html as st_html
+
+            _stroke_html = render_poem_with_strokes(current_poem["content"])
+            # Estimate height: ~50px per line + 120px padding for hint
+            _nlines = current_poem["content"].count("\n") + 1
+            _height = max(250, _nlines * 50 + 120)
+            st_html(_stroke_html, height=_height, scrolling=True)
 
             # Marking buttons
             col1, col2 = st.columns(2)
