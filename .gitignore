@@ -180,5 +180,5 @@ data/users/flashcard_log_*.json
 # Deduplication log files
 data/deduplication_log.json
 
-# cnchar-data dataset (large external dataset, should be cloned separately)
-data/cnchar-data/
+# cnchar-data dataset (added as git submodule for reproducibility)
+# See: https://github.com/cn-char/cnchar-data
