@@ -63,6 +63,11 @@ def _wrap_chars(text: str, stroke_data: dict[str, list[str]]) -> str:
 # ---------------------------------------------------------------------------
 
 _CSS = """\
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
 /* Poem card */
 .poem-widget {
     padding: 1.5rem;
@@ -119,7 +124,7 @@ _CSS = """\
     overflow-y: auto;
     box-shadow: 0 8px 32px rgba(0,0,0,0.25);
     position: relative;
-    min-width: 320px;
+    /* width/height set dynamically by JS based on stroke count */
 }
 .stroke-modal-close {
     position: absolute;
@@ -168,8 +173,31 @@ _JS = """\
   var overlay = document.getElementById('strokeModalOverlay');
   var modal   = document.getElementById('strokeModal');
 
+  /* Expand iframe to cover parent viewport so modal is page-centered */
+  function expandFrame() {
+    var frame = window.frameElement;
+    if (frame) {
+      frame._origStyle = frame.style.cssText;
+      frame.style.position = 'fixed';
+      frame.style.top = '0';
+      frame.style.left = '0';
+      frame.style.width = '100vw';
+      frame.style.height = '100vh';
+      frame.style.zIndex = '999999';
+    }
+  }
+  function restoreFrame() {
+    var frame = window.frameElement;
+    if (frame && frame._origStyle !== undefined) {
+      frame.style.cssText = frame._origStyle;
+    }
+  }
+
   /* Close helpers */
-  function closeModal() { overlay.classList.remove('open'); }
+  function closeModal() {
+    overlay.classList.remove('open');
+    restoreFrame();
+  }
   overlay.addEventListener('click', function(e) {
     if (e.target === overlay) closeModal();
   });
@@ -211,6 +239,16 @@ _JS = """\
       document.getElementById('strokeModalSubtitle').textContent =
         '共 ' + strokes.length + ' 画  —  双击字符查看笔顺';
 
+      /* Size modal dynamically based on stroke count */
+      var n = strokes.length;
+      var w, h;
+      if (n <= 4)       { w = 40; h = 35; }
+      else if (n <= 8)  { w = 55; h = 50; }
+      else if (n <= 12) { w = 70; h = 60; }
+      else              { w = 85; h = 75; }
+      modal.style.width  = w + 'vw';
+      modal.style.height = h + 'vh';
+
       /* Build grid */
       var grid = document.getElementById('strokeGrid');
       grid.innerHTML = '';
@@ -221,6 +259,7 @@ _JS = """\
                       + buildSVG(strokes, s);
         grid.appendChild(div);
       }
+      expandFrame();
       overlay.classList.add('open');
     });
   });

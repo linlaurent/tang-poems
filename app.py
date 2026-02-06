@@ -752,10 +752,8 @@ def flashcard_mode():
             from streamlit.components.v1 import html as st_html
 
             _stroke_html = render_poem_with_strokes(current_poem["content"])
-            # Estimate height: ~50px per line + 120px padding for hint
-            _nlines = current_poem["content"].count("\n") + 1
-            _height = max(250, _nlines * 50 + 120)
-            st_html(_stroke_html, height=_height, scrolling=True)
+            # Use 75% of viewport height (approx 75vh ≈ 810px on 1080p)
+            st_html(_stroke_html, height=810, scrolling=True)
 
             # Marking buttons
             col1, col2 = st.columns(2)
