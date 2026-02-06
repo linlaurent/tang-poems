@@ -7,6 +7,7 @@
 - **📖 浏览模式**：浏览和搜索唐诗，支持按标题、作者或内容搜索
 - **🎯 测验模式**：通过选择题和填空题测试对唐诗的掌握程度
 - **🃏 闪卡模式**：使用闪卡方式记忆诗歌，可标记已掌握或需练习的诗歌
+- **✍️ 笔顺查询**：查询汉字的笔画顺序（需要 cnchar-data 数据集，可选功能）
 
 ## 技术栈
 
@@ -43,7 +44,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 pip install uv
 ```
 
-3. 运行应用：
+3. （可选）获取笔顺数据：如需使用笔顺查询功能，请克隆 cnchar-data 数据集：
+
+```bash
+git clone --depth 1 https://github.com/cn-char/cnchar-data.git data/cnchar-data
+```
+
+4. 运行应用：
 
 ```bash
 uv run streamlit run app.py
@@ -72,7 +79,8 @@ poems/
 │   ├── __init__.py
 │   ├── data_loader.py      # 诗歌数据加载模块
 │   ├── quiz.py             # 测验模式逻辑
-│   └── flashcards.py       # 闪卡模式逻辑
+│   ├── flashcards.py       # 闪卡模式逻辑
+│   └── stroke_order.py     # 笔顺查询模块（使用 cnchar-data）
 └── README.md               # 项目文档
 ```
 
