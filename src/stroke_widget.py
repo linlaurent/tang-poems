@@ -173,8 +173,15 @@ _JS = """\
   var overlay = document.getElementById('strokeModalOverlay');
   var modal   = document.getElementById('strokeModal');
 
+  var poemWidget = document.querySelector('.poem-widget');
+  var hintLine   = document.querySelector('.hint-line');
+
   /* Expand iframe to cover parent viewport so modal is page-centered */
   function expandFrame() {
+    /* Hide poem content so it doesn't shift visually */
+    if (poemWidget) poemWidget.style.visibility = 'hidden';
+    if (hintLine)   hintLine.style.visibility   = 'hidden';
+
     var frame = window.frameElement;
     if (frame) {
       frame._origStyle = frame.style.cssText;
@@ -191,6 +198,10 @@ _JS = """\
     if (frame && frame._origStyle !== undefined) {
       frame.style.cssText = frame._origStyle;
     }
+
+    /* Restore poem content visibility */
+    if (poemWidget) poemWidget.style.visibility = '';
+    if (hintLine)   hintLine.style.visibility   = '';
   }
 
   /* Close helpers */
