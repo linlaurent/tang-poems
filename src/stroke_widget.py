@@ -272,15 +272,15 @@ _JS = """\
       document.getElementById('strokeModalSubtitle').textContent =
         '共 ' + strokes.length + ' 画  —  双击字符查看笔顺';
 
-      /* Size modal dynamically based on stroke count */
+      /* Size modal width dynamically based on stroke count; height auto-fits */
       var n = strokes.length;
-      var w, h;
-      if (n <= 4)       { w = 40; h = 35; }
-      else if (n <= 8)  { w = 55; h = 50; }
-      else if (n <= 12) { w = 70; h = 60; }
-      else              { w = 85; h = 75; }
+      var w;
+      if (n <= 4)       { w = 40; }
+      else if (n <= 8)  { w = 55; }
+      else if (n <= 12) { w = 70; }
+      else              { w = 85; }
       modal.style.width  = w + 'vw';
-      modal.style.height = h + 'vh';
+      modal.style.height = 'auto';
 
       /* Build grid */
       var grid = document.getElementById('strokeGrid');
