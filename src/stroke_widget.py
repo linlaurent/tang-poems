@@ -27,16 +27,38 @@ def _is_cjk(ch: str) -> bool:
 
 
 def _collect_stroke_data(text: str) -> dict[str, list[str]]:
-    """Return {char: [svg_path, ...]} for every unique CJK char in *text*."""
+    """Return {char: [svg_path, ...]} for every unique CJK char in *text*.
+
+    Characters are fetched in parallel so the GitHub fallback (used on
+    Streamlit Cloud where the local submodule is absent) stays fast.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # Deduplicate CJK characters while preserving order
     seen: set[str] = set()
-    result: dict[str, list[str]] = {}
+    chars: list[str] = []
     for ch in text:
-        if ch in seen or not _is_cjk(ch):
-            continue
-        seen.add(ch)
-        info = get_stroke_order(ch)
-        if info is not None:
-            result[ch] = info["strokes"]
+        if ch not in seen and _is_cjk(ch):
+            seen.add(ch)
+            chars.append(ch)
+
+    if not chars:
+        return {}
+
+    result: dict[str, list[str]] = {}
+
+    # Fetch all characters in parallel (ThreadPool is fine for I/O-bound work)
+    with ThreadPoolExecutor(max_workers=min(len(chars), 16)) as pool:
+        future_to_char = {pool.submit(get_stroke_order, ch): ch for ch in chars}
+        for future in as_completed(future_to_char):
+            ch = future_to_char[future]
+            try:
+                info = future.result()
+                if info is not None:
+                    result[ch] = info["strokes"]
+            except Exception:
+                pass  # skip characters that fail
+
     return result
 
 
