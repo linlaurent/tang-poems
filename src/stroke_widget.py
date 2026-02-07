@@ -270,7 +270,7 @@ _JS = """\
       /* Title */
       document.getElementById('strokeModalTitle').textContent = ch;
       document.getElementById('strokeModalSubtitle').textContent =
-        '共 ' + strokes.length + ' 画  —  双击字符查看笔顺';
+        '共 ' + strokes.length + ' 画';
 
       /* Size modal width dynamically based on stroke count; height auto-fits */
       var n = strokes.length;
