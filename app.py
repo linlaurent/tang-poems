@@ -158,11 +158,16 @@ def get_user_id() -> str:
     return "guest"
 
 
+def _get_character_set() -> str:
+    """Get the current character set setting from session state."""
+    return st.session_state.get("character_set", "simplified")
+
+
 def display_mode():
     """Display mode: Browse and search poems."""
     st.header("📖 浏览唐诗")
 
-    poems = load_poems()
+    poems = load_poems(_get_character_set())
 
     # Search bar
     col1, col2 = st.columns([3, 1])
@@ -245,7 +250,7 @@ def quiz_mode():
     """Quiz mode: Test knowledge with questions."""
     st.header("🎯 测验模式")
 
-    poems = load_poems()
+    poems = load_poems(_get_character_set())
 
     if not poems:
         st.error("无法加载诗歌数据。")
@@ -352,14 +357,15 @@ def flashcard_mode():
     if user_id == "guest":
         st.warning("⚠️ 您当前以访客模式使用。请在侧边栏输入用户名以保存学习进度。")
 
-    poems = load_poems()
+    poems = load_poems(_get_character_set())
 
     if not poems:
         st.error("无法加载诗歌数据。")
         return
 
     # Initialize flashcard session with user_id
-    # Check if we need to reinitialize (first time or user changed)
+    # Check if we need to reinitialize
+    # (first time, user changed, or character set changed)
     needs_reinit = False
     if "flashcard_state" not in st.session_state:
         needs_reinit = True
@@ -371,6 +377,14 @@ def flashcard_mode():
             else None
         )
         if existing_user_id != user_id:
+            needs_reinit = True
+        # Check if character set changed
+        existing_charset = (
+            st.session_state.flashcard_state.get("character_set")
+            if isinstance(st.session_state.flashcard_state, dict)
+            else None
+        )
+        if existing_charset != _get_character_set():
             needs_reinit = True
 
     if needs_reinit:
@@ -386,6 +400,7 @@ def flashcard_mode():
             st.session_state.flashcard_state = initialize_flashcard_session(
                 poems, user_id
             )
+            st.session_state.flashcard_state["character_set"] = _get_character_set()
             # Initialize filtered indices
             st.session_state.flashcard_state = apply_filter(
                 st.session_state.flashcard_state
@@ -950,7 +965,7 @@ def analytics_mode():
         return
 
     # Load poems and logs
-    poems = load_poems()
+    poems = load_poems(_get_character_set())
     if not poems:
         st.error("无法加载诗歌数据。")
         return
@@ -1234,6 +1249,16 @@ def main():
             "选择学习模式：",
             ["🃏 闪卡模式", "📖 浏览模式", "🎯 测验模式", "📊 数据分析"],
             label_visibility="collapsed",
+        )
+
+        st.divider()
+        st.header("设置")
+        st.radio(
+            "字体选择",
+            ["simplified", "traditional"],
+            format_func=lambda x: "简体中文" if x == "simplified" else "繁體中文",
+            index=0,
+            key="character_set",
         )
 
     # Handle mode switching from analytics

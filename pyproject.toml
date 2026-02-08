@@ -1,6 +1,6 @@
 [project]
 name = "tang-poems-learning"
-version = "0.2.0"
+version = "0.3.0"
 description = "Streamlit application for learning 300 Tang Poems (唐诗三百首)"
 requires-python = ">=3.9"
 dependencies = [

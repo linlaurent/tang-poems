@@ -123,10 +123,13 @@ def transform_poem_format(poem: dict) -> dict:
     return result
 
 
-def load_poems_from_local() -> Optional[list[dict]]:
+def load_poems_from_local(character_set: str = "simplified") -> Optional[list[dict]]:
     """
     Load poems from local JSON file if it exists.
     Supports both 唐诗三百首.json and tang_poems.json formats.
+
+    Args:
+        character_set: "simplified" (default) or "traditional"
     """
     try:
         # Try to find the data file relative to the project root
@@ -134,8 +137,12 @@ def load_poems_from_local() -> Optional[list[dict]]:
         project_root = current_file.parent.parent
         data_dir = project_root / "data"
 
-        # Try 唐诗三百首.json first (new format)
-        poems_file = data_dir / "唐诗三百首.json"
+        # Choose file based on character_set setting
+        if character_set == "traditional":
+            poems_file = data_dir / "唐诗三百首_繁体.json"
+        else:
+            poems_file = data_dir / "唐诗三百首.json"
+
         if not poems_file.exists():
             # Fallback to tang_poems.json (old format)
             poems_file = data_dir / "tang_poems.json"
@@ -169,20 +176,27 @@ def load_poems_from_local() -> Optional[list[dict]]:
     return None
 
 
-def load_poems() -> list[dict]:
+def load_poems(character_set: str = "simplified") -> list[dict]:
     """
     Load poems with caching in session state.
     Prefers local file over API.
+    Reloads if character_set changes.
+
+    Args:
+        character_set: "simplified" (default) or "traditional"
     """
-    if "poems" not in st.session_state:
+    # Reload if character set changed since last load
+    cached_charset = st.session_state.get("poems_character_set")
+    if "poems" not in st.session_state or cached_charset != character_set:
         with st.spinner("正在加载唐诗数据..."):
             # Try local file first
-            local_poems = load_poems_from_local()
+            local_poems = load_poems_from_local(character_set)
             if local_poems:
                 st.session_state.poems = local_poems
             else:
                 # Fallback to API
                 st.session_state.poems = fetch_poems_from_api()
+            st.session_state.poems_character_set = character_set
 
     return st.session_state.poems
 
