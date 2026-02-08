@@ -752,9 +752,9 @@ def flashcard_mode():
             from streamlit.components.v1 import html as st_html
 
             _stroke_html = render_poem_with_strokes(current_poem["content"])
-            # Size iframe to fit poem content; modal expands iframe when opened
+            # Size iframe to fit poem content + hint + button; modal expands iframe
             _nlines = current_poem["content"].count("\n") + 1
-            _height = max(150, _nlines * 50 + 80)
+            _height = max(200, _nlines * 50 + 120)
             st_html(_stroke_html, height=_height, scrolling=False)
 
             # Marking buttons

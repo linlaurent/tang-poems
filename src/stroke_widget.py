@@ -123,6 +123,34 @@ html, body {
     color: #999;
     margin-top: 0.6rem;
 }
+.show-all-btn {
+    display: block;
+    margin: 0.6rem auto 0;
+    padding: 6px 18px;
+    font-size: 0.9rem;
+    background: #4CAF50;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.show-all-btn:hover { background: #388E3C; }
+/* All-characters layout inside modal */
+.char-section { margin-bottom: 22px; }
+.char-section-header {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-bottom: 6px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 4px;
+}
+.char-section-header .char-count {
+    font-size: 0.85rem;
+    font-weight: normal;
+    color: #888;
+    margin-left: 8px;
+}
 
 /* Modal overlay */
 .stroke-modal-overlay {
@@ -195,14 +223,16 @@ _JS = """\
   var overlay = document.getElementById('strokeModalOverlay');
   var modal   = document.getElementById('strokeModal');
 
-  var poemWidget = document.querySelector('.poem-widget');
-  var hintLine   = document.querySelector('.hint-line');
+  var poemWidget  = document.querySelector('.poem-widget');
+  var hintLine    = document.querySelector('.hint-line');
+  var showAllBtn  = document.getElementById('showAllStrokesBtn');
 
   /* Expand iframe to cover parent viewport so modal is page-centered */
   function expandFrame() {
     /* Hide poem content so it doesn't shift visually */
     if (poemWidget) poemWidget.style.visibility = 'hidden';
     if (hintLine)   hintLine.style.visibility   = 'hidden';
+    if (showAllBtn) showAllBtn.style.visibility  = 'hidden';
 
     var frame = window.frameElement;
     if (frame) {
@@ -224,6 +254,7 @@ _JS = """\
     /* Restore poem content visibility */
     if (poemWidget) poemWidget.style.visibility = '';
     if (hintLine)   hintLine.style.visibility   = '';
+    if (showAllBtn) showAllBtn.style.visibility  = '';
   }
 
   /* Close helpers */
@@ -259,42 +290,107 @@ _JS = """\
          + paths + '</g></svg>';
   }
 
+  /* Helper: populate modal for a single character */
+  function showSingleChar(ch) {
+    var strokes = STROKE_DATA[ch];
+    if (!strokes) return;
+
+    document.getElementById('strokeModalTitle').textContent = ch;
+    document.getElementById('strokeModalSubtitle').textContent =
+      '共 ' + strokes.length + ' 画';
+
+    var n = strokes.length;
+    var w;
+    if (n <= 4)       { w = 40; }
+    else if (n <= 8)  { w = 55; }
+    else if (n <= 12) { w = 70; }
+    else              { w = 85; }
+    modal.style.width  = w + 'vw';
+    modal.style.height = 'auto';
+
+    var grid = document.getElementById('strokeGrid');
+    grid.innerHTML = '';
+    for (var s = 1; s <= strokes.length; s++) {
+      var div = document.createElement('div');
+      div.className = 'stroke-step';
+      div.innerHTML = '<div class="step-label">' + s + '/' + strokes.length + '</div>'
+                    + buildSVG(strokes, s);
+      grid.appendChild(div);
+    }
+    expandFrame();
+    overlay.classList.add('open');
+  }
+
   /* Double-click handler */
   document.querySelectorAll('.stroke-char').forEach(function(span) {
     span.addEventListener('dblclick', function(e) {
       e.preventDefault();
-      var ch = this.getAttribute('data-char');
+      showSingleChar(this.getAttribute('data-char'));
+    });
+  });
+
+  /* "Show All Strokes" button */
+  document.getElementById('showAllStrokesBtn').addEventListener('click', function() {
+    /* Collect unique CJK chars in document order */
+    var chars = [];
+    var seen = {};
+    document.querySelectorAll('.stroke-char').forEach(function(span) {
+      var ch = span.getAttribute('data-char');
+      if (!seen[ch] && STROKE_DATA[ch]) { seen[ch] = true; chars.push(ch); }
+    });
+    if (!chars.length) return;
+
+    document.getElementById('strokeModalTitle').textContent = '全部笔顺';
+    document.getElementById('strokeModalSubtitle').textContent =
+      '共 ' + chars.length + ' 个汉字';
+
+    modal.style.width  = '88vw';
+    modal.style.height = 'auto';
+
+    var grid = document.getElementById('strokeGrid');
+    grid.innerHTML = '';
+    /* Reset grid to single-column for all-characters view */
+    grid.style.display = 'block';
+
+    for (var ci = 0; ci < chars.length; ci++) {
+      var ch = chars[ci];
       var strokes = STROKE_DATA[ch];
-      if (!strokes) return;
 
-      /* Title */
-      document.getElementById('strokeModalTitle').textContent = ch;
-      document.getElementById('strokeModalSubtitle').textContent =
-        '共 ' + strokes.length + ' 画';
+      var section = document.createElement('div');
+      section.className = 'char-section';
 
-      /* Size modal width dynamically based on stroke count; height auto-fits */
-      var n = strokes.length;
-      var w;
-      if (n <= 4)       { w = 40; }
-      else if (n <= 8)  { w = 55; }
-      else if (n <= 12) { w = 70; }
-      else              { w = 85; }
-      modal.style.width  = w + 'vw';
-      modal.style.height = 'auto';
+      var header = document.createElement('div');
+      header.className = 'char-section-header';
+      header.innerHTML = ch + '<span class="char-count">'
+        + strokes.length + ' 画</span>';
+      section.appendChild(header);
 
-      /* Build grid */
-      var grid = document.getElementById('strokeGrid');
-      grid.innerHTML = '';
+      var subgrid = document.createElement('div');
+      subgrid.className = 'stroke-grid';
       for (var s = 1; s <= strokes.length; s++) {
         var div = document.createElement('div');
         div.className = 'stroke-step';
         div.innerHTML = '<div class="step-label">' + s + '/' + strokes.length + '</div>'
                       + buildSVG(strokes, s);
-        grid.appendChild(div);
+        subgrid.appendChild(div);
       }
-      expandFrame();
-      overlay.classList.add('open');
-    });
+      section.appendChild(subgrid);
+      grid.appendChild(section);
+    }
+
+    expandFrame();
+    overlay.classList.add('open');
+
+    /* Restore grid display on close so single-char view works again */
+    var origClose = closeModal;
+    closeModal = function() {
+      grid.style.display = '';
+      origClose();
+      closeModal = origClose;
+    };
+    /* Re-bind overlay click & close button & Escape for this session */
+    overlay.onclick = function(e) { if (e.target === overlay) closeModal(); };
+    document.getElementById('strokeModalClose').onclick = closeModal;
   });
 })();
 """
@@ -321,6 +417,7 @@ def render_poem_with_strokes(content: str) -> str:
 <body>
 <div class="poem-widget">{wrapped_content}</div>
 <div class="hint-line">双击任意汉字查看笔顺</div>
+<button class="show-all-btn" id="showAllStrokesBtn">✍️ 全部笔顺</button>
 
 <!-- Modal -->
 <div class="stroke-modal-overlay" id="strokeModalOverlay">
