@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import re
 
+from pypinyin import Style, pinyin
+
 from src.stroke_order import get_stroke_order
 
 # Regex matching CJK Unified Ideographs (common + extension A/B)
@@ -24,6 +26,30 @@ _CJK_RE = re.compile(
 def _is_cjk(ch: str) -> bool:
     """Return True if *ch* is a CJK ideograph."""
     return bool(_CJK_RE.fullmatch(ch))
+
+
+def _get_pinyin(ch: str) -> str:
+    """Return pinyin string for a single CJK character.
+
+    Uses ``heteronym=True`` so that all possible pronunciations are
+    returned.  Multiple readings are separated by ``<br>`` so they
+    stack vertically in the ``<rt>`` annotation.
+    """
+    readings = pinyin(ch, style=Style.TONE, heteronym=True)
+    if readings and readings[0]:
+        return "<br>".join(readings[0])
+    return ""
+
+
+def _collect_pinyin_data(text: str) -> dict[str, str]:
+    """Return ``{char: pinyin_str}`` for every unique CJK char in *text*."""
+    result: dict[str, str] = {}
+    for ch in text:
+        if ch not in result and _is_cjk(ch):
+            py = _get_pinyin(ch)
+            if py:
+                result[ch] = py
+    return result
 
 
 def _collect_stroke_data(text: str) -> dict[str, list[str]]:
@@ -62,8 +88,15 @@ def _collect_stroke_data(text: str) -> dict[str, list[str]]:
     return result
 
 
-def _wrap_chars(text: str, stroke_data: dict[str, list[str]]) -> str:
-    """Wrap each CJK character in an interactive <span>.
+def _wrap_chars(
+    text: str,
+    stroke_data: dict[str, list[str]],
+    pinyin_data: dict[str, str],
+) -> str:
+    """Wrap each CJK character in an interactive ``<span>`` with pinyin tooltip.
+
+    Pinyin is placed in an absolutely-positioned child so it takes no
+    layout space; it appears above the character on hover.
 
     Non-CJK characters (punctuation, whitespace, etc.) pass through as-is.
     Newlines are converted to ``<br>``.
@@ -74,7 +107,16 @@ def _wrap_chars(text: str, stroke_data: dict[str, list[str]]) -> str:
             parts.append("<br>")
         elif _is_cjk(ch):
             cls = "stroke-char" if ch in stroke_data else "stroke-char-nodata"
-            parts.append(f'<span class="{cls}" data-char="{ch}">{ch}</span>')
+            py = pinyin_data.get(ch, "")
+            if py:
+                parts.append(
+                    f'<span class="py-wrap">'
+                    f'<span class="py-tip">{py}</span>'
+                    f'<span class="{cls}" data-char="{ch}">{ch}</span>'
+                    f"</span>"
+                )
+            else:
+                parts.append(f'<span class="{cls}" data-char="{ch}">{ch}</span>')
         else:
             parts.append(ch)
     return "".join(parts)
@@ -101,6 +143,28 @@ html, body {
     line-height: 2;
     color: #34495e;
     white-space: pre-line;
+}
+/* Pinyin tooltip – absolutely positioned, no layout impact */
+.poem-widget .py-wrap {
+    position: relative;
+    display: inline;
+}
+.poem-widget .py-tip {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    transform: translateX(-50%);
+    font-size: 0.5em;
+    line-height: 1.15;
+    color: #888;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    text-align: center;
+}
+.poem-widget .py-wrap:hover .py-tip {
+    opacity: 1;
 }
 .poem-widget .stroke-char {
     cursor: pointer;
@@ -400,10 +464,12 @@ def render_poem_with_strokes(content: str) -> str:
     """Return a self-contained HTML string for displaying *content*.
 
     Each CJK character is interactive: double-click opens a modal showing
-    progressive stroke order (if data is available).
+    progressive stroke order (if data is available).  Pinyin annotations
+    (including all heteronym readings) are shown above each character.
     """
     stroke_data = _collect_stroke_data(content)
-    wrapped_content = _wrap_chars(content, stroke_data)
+    pinyin_data = _collect_pinyin_data(content)
+    wrapped_content = _wrap_chars(content, stroke_data, pinyin_data)
 
     # Serialise stroke data for embedding in JS
     stroke_json = json.dumps(stroke_data, ensure_ascii=False)
