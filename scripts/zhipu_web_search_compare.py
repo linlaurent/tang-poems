@@ -19,12 +19,10 @@ def main() -> None:
     print("Query:", QUERY)
     print()
 
-    print("--- web_search=True ---")
-    print(chat_completion(MESSAGES, web_search=True))
-    print()
-
-    print("--- web_search=False ---")
-    print(chat_completion(MESSAGES, web_search=False))
+    for search_mode in [False, True]:
+        print(f"--- web_search={search_mode} ---")
+        print(chat_completion(MESSAGES, web_search=search_mode))
+        print()
 
 
 if __name__ == "__main__":
