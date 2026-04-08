@@ -1,6 +1,7 @@
 """Main Streamlit application for learning 300 Tang Poems."""
 
 import json
+import os
 from datetime import datetime
 
 import streamlit as st
@@ -14,7 +15,7 @@ from src.analytics import (
     get_recommendations,
     get_study_stats,
 )
-from src.data_loader import load_poems, search_poems
+from src.data_loader import invalidate_poems_cache, load_poems, search_poems
 from src.flashcards import (
     apply_filter,
     export_progress_data,
@@ -36,8 +37,10 @@ from src.flashcards import (
     reveal_content,
     save_progress,
 )
+from src.poem_web_supplement import supplement_poems_from_web_query
 from src.quiz import check_answer, get_next_question, initialize_quiz_session
 from src.stroke_widget import render_poem_with_strokes
+from src.zhipu_glm import ZHIPU_API_KEY_ENV
 
 # Page configuration
 st.set_page_config(
@@ -187,6 +190,30 @@ def display_mode():
         if not filtered_poems:
             st.warning(f"未找到匹配「{search_query}」的诗歌。")
             st.info("💡 提示：可以尝试搜索作者名（如：李白、杜甫）或诗歌标题中的关键词")
+            if not os.environ.get(ZHIPU_API_KEY_ENV):
+                st.info(
+                    f"如需联网补充诗作，请在环境中设置 {ZHIPU_API_KEY_ENV}"
+                    "（例如启动前 export）。"
+                )
+            else:
+                if st.button(
+                    "使用智谱联网搜索并补充", key="web_supplement_display_btn"
+                ):
+                    with st.spinner("正在联网检索…"):
+                        added, err = supplement_poems_from_web_query(
+                            search_query.strip(), poems
+                        )
+                    if err:
+                        st.error(err)
+                    elif added == 0:
+                        st.warning("未从网络补充到新诗（可能已收录或检索无明确匹配）。")
+                    else:
+                        st.success(
+                            f"已补充 {added} 首诗到本地扩展库"
+                            "（data/poems_supplement.json）。"
+                        )
+                        invalidate_poems_cache()
+                        st.rerun()
             return
         st.success(f"找到 {len(filtered_poems)} 首匹配的诗歌")
     else:
@@ -596,6 +623,28 @@ def flashcard_mode():
                         st.rerun()
             else:
                 st.info("未找到匹配的诗歌")
+                if os.environ.get(ZHIPU_API_KEY_ENV) and search_query.strip():
+                    if st.button(
+                        "使用智谱联网搜索并补充",
+                        key="web_supplement_flashcard_btn",
+                    ):
+                        with st.spinner("正在联网检索…"):
+                            added, err = supplement_poems_from_web_query(
+                                search_query.strip(), poems
+                            )
+                        if err:
+                            st.error(err)
+                        elif added == 0:
+                            st.warning(
+                                "未从网络补充到新诗（可能已收录或检索无明确匹配）。"
+                            )
+                        else:
+                            st.success(f"已补充 {added} 首诗到扩展库；闪卡列表已刷新。")
+                            invalidate_poems_cache()
+                            st.session_state.pop("flashcard_state", None)
+                            st.rerun()
+                elif search_query.strip():
+                    st.caption(f"联网补充需设置环境变量 {ZHIPU_API_KEY_ENV}。")
 
     # Collapsible section for Author and Title selection
     with st.expander("📋 高级导航（按作者/标题选择）", expanded=False):

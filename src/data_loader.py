@@ -7,6 +7,49 @@ from typing import Optional
 import requests
 import streamlit as st
 
+SUPPLEMENT_FILENAME = "poems_supplement.json"
+
+
+def project_data_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "data"
+
+
+def supplement_poems_path() -> Path:
+    return project_data_dir() / SUPPLEMENT_FILENAME
+
+
+def load_supplement_poems() -> list[dict]:
+    path = supplement_poems_path()
+    if not path.exists():
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def save_supplement_poems(poems: list[dict]) -> None:
+    path = supplement_poems_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(poems, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)
+
+
+def append_supplement_poems(new_poems: list[dict]) -> int:
+    """Append poems to the supplement file (caller must dedupe). Returns count added."""
+    current = load_supplement_poems()
+    current.extend(new_poems)
+    save_supplement_poems(current)
+    return len(new_poems)
+
+
+def invalidate_poems_cache() -> None:
+    st.session_state.pop("poems", None)
+
 
 def fetch_poems_from_api() -> list[dict]:
     """
@@ -192,10 +235,11 @@ def load_poems(character_set: str = "simplified") -> list[dict]:
             # Try local file first
             local_poems = load_poems_from_local(character_set)
             if local_poems:
-                st.session_state.poems = local_poems
+                base = local_poems
             else:
-                # Fallback to API
-                st.session_state.poems = fetch_poems_from_api()
+                base = fetch_poems_from_api()
+            supplement = load_supplement_poems()
+            st.session_state.poems = base + supplement
             st.session_state.poems_character_set = character_set
 
     return st.session_state.poems
