@@ -9,7 +9,7 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
-DEFAULT_MODEL = "glm-4.7-flash"
+DEFAULT_MODEL = "glm-4-flash"
 ZHIPU_API_KEY_ENV = "ZHIPU_API_KEY"
 
 # API error 1214 if ``web_search`` tool omits a non-empty ``web_search`` object.
