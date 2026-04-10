@@ -37,7 +37,12 @@ from src.flashcards import (
     reveal_content,
     save_progress,
 )
-from src.poem_web_supplement import supplement_poems_from_web_query
+from src.poem_web_supplement import (
+    commit_poems_to_supplement,
+    is_poem_in_corpus,
+    preview_poems_from_web_query,
+    validate_glm_poem_against_corpus,
+)
 from src.quiz import check_answer, get_next_question, initialize_quiz_session
 from src.stroke_widget import render_poem_with_strokes
 from src.zhipu_glm import ZHIPU_API_KEY_ENV
@@ -166,61 +171,194 @@ def _get_character_set() -> str:
     return st.session_state.get("character_set", "simplified")
 
 
+def _glm_use_web_search() -> bool:
+    """True if sidebar enables Zhipu web_search tool for poem GLM calls."""
+    return bool(st.session_state.get("glm_poem_web_search", True))
+
+
+def _web_multiselect_label_index(label: str) -> int:
+    if not label.startswith("["):
+        raise ValueError("invalid label")
+    closing = label.index("]")
+    return int(label[1:closing])
+
+
+def render_web_poem_preview_block(
+    *,
+    preview_state_key: str,
+    trimmed_query: str,
+    corpus: list[dict],
+    after_commit_pop_flashcard: bool = False,
+) -> None:
+    preview = st.session_state.get(preview_state_key)
+    if not preview or preview.get("query") != trimmed_query:
+        return
+
+    plist: list[dict] = preview.get("poems") or []
+    used_web = preview.get("use_web_search", True)
+    corpus_tag = preview.get("corpus_tag")
+    if corpus_tag is not None:
+        st.subheader("本地诗库匹配")
+        if corpus_tag == "ambiguous":
+            st.warning("本地诗库中有多首可能匹配，请从下方选择要加入扩展库的诗作。")
+    else:
+        st.subheader("联网检索结果" if used_web else "模型检索结果")
+        if not used_web:
+            st.warning("当前未启用联网：结果为纯模型输出，请自行核对，勿轻信。")
+    if not plist:
+        st.warning("模型未返回诗作（空结果）。")
+        if st.button("清除预览", key=f"{preview_state_key}_clear_empty"):
+            st.session_state.pop(preview_state_key, None)
+            st.rerun()
+        return
+
+    labels: list[str] = []
+    default_labels: list[str] = []
+    for i, p in enumerate(plist):
+        dup = is_poem_in_corpus(p, corpus)
+        suffix = "（已在库中）" if dup else ""
+        lab = f"[{i}] {p['title']} — {p['author']}{suffix}"
+        labels.append(lab)
+        if not dup:
+            default_labels.append(lab)
+
+    for i, p in enumerate(plist):
+        with st.expander(f"{i + 1}. {p['title']} — {p['author']}", expanded=(i == 0)):
+            st.write(f"朝代：{p.get('dynasty', '')}")
+            st.markdown(
+                f'<div class="poem-content">{p["content"]}</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown("**本地库交叉验证**")
+            v_lvl, v_msg = validate_glm_poem_against_corpus(p, trimmed_query, corpus)
+            if v_lvl == "ok":
+                st.success(v_msg)
+            elif v_lvl == "warn":
+                st.info(v_msg)
+            else:
+                st.error(v_msg)
+
+    selected = st.multiselect(
+        "选择要加入扩展库的诗作",
+        options=labels,
+        default=default_labels,
+        key=f"{preview_state_key}_multiselect",
+    )
+    st.caption("保存位置：data/poems_supplement.json")
+
+    bcol1, bcol2 = st.columns(2)
+    with bcol1:
+        if st.button("确认加入", key=f"{preview_state_key}_commit"):
+            chosen: list[dict] = []
+            for lab in selected:
+                try:
+                    idx = _web_multiselect_label_index(lab)
+                    if 0 <= idx < len(plist):
+                        chosen.append(plist[idx])
+                except (ValueError, IndexError):
+                    continue
+            added, err = commit_poems_to_supplement(chosen, corpus)
+            if err:
+                st.error(err)
+            elif added == 0:
+                st.warning("没有新诗被加入（所选可能已在库中）。")
+            else:
+                st.session_state.pop(preview_state_key, None)
+                invalidate_poems_cache()
+                if after_commit_pop_flashcard:
+                    st.session_state.pop("flashcard_state", None)
+                toast = getattr(st, "toast", None)
+                if callable(toast):
+                    toast(f"已加入 {added} 首诗")
+                st.rerun()
+    with bcol2:
+        if st.button("清除预览", key=f"{preview_state_key}_clear"):
+            st.session_state.pop(preview_state_key, None)
+            st.rerun()
+
+
 def display_mode():
     """Display mode: Browse and search poems."""
     st.header("📖 浏览唐诗")
 
     poems = load_poems(_get_character_set())
 
-    # Search bar
-    col1, col2 = st.columns([3, 1])
-    with col1:
+    col_in, col_web, col_cnt = st.columns([4, 1, 1])
+    with col_in:
         search_query = st.text_input(
             "🔍 搜索诗歌（标题、作者或内容）",
             placeholder="输入关键词...",
             key="poem_search_input",
         )
-    with col2:
-        st.write("")  # Spacing
-        st.write(f"**共 {len(poems)} 首诗**")
+    q = search_query.strip() if search_query else ""
+    preview_key_browse = "web_preview_browse"
+    pv_b = st.session_state.get(preview_key_browse)
+    if pv_b and pv_b.get("query") != q:
+        st.session_state.pop(preview_key_browse, None)
 
-    # Filter poems based on search query
-    if search_query and search_query.strip():
-        filtered_poems = search_poems(poems, search_query)
-        if not filtered_poems:
-            st.warning(f"未找到匹配「{search_query}」的诗歌。")
-            st.info("💡 提示：可以尝试搜索作者名（如：李白、杜甫）或诗歌标题中的关键词")
-            if not os.environ.get(ZHIPU_API_KEY_ENV):
-                st.info(
-                    f"如需联网补充诗作，请在环境中设置 {ZHIPU_API_KEY_ENV}"
-                    "（例如启动前 export）。"
+    api_ok = bool(os.environ.get(ZHIPU_API_KEY_ENV))
+    use_web = _glm_use_web_search()
+    with col_web:
+        st.write("")
+        btn_help = (
+            "使用智谱 GLM 检索诗词（需 ZHIPU_API_KEY）。"
+            "侧边栏可关闭「联网」以仅用模型。"
+        )
+        if st.button(
+            "联网搜索" if use_web else "模型检索",
+            disabled=not q,
+            key="browse_web_glm_btn",
+            help=btn_help,
+        ):
+            with st.spinner("正在检索…"):
+                plist, err, corpus_tag = preview_poems_from_web_query(
+                    q,
+                    use_web_search=use_web,
+                    corpus=poems,
                 )
+            if err:
+                st.error(err)
             else:
-                if st.button(
-                    "使用智谱联网搜索并补充", key="web_supplement_display_btn"
-                ):
-                    with st.spinner("正在联网检索…"):
-                        added, err = supplement_poems_from_web_query(
-                            search_query.strip(), poems
-                        )
-                    if err:
-                        st.error(err)
-                    elif added == 0:
-                        st.warning("未从网络补充到新诗（可能已收录或检索无明确匹配）。")
-                    else:
-                        st.success(
-                            f"已补充 {added} 首诗到本地扩展库"
-                            "（data/poems_supplement.json）。"
-                        )
-                        invalidate_poems_cache()
-                        st.rerun()
-            return
-        st.success(f"找到 {len(filtered_poems)} 首匹配的诗歌")
+                st.session_state[preview_key_browse] = {
+                    "query": q,
+                    "poems": plist,
+                    "use_web_search": use_web,
+                    "corpus_tag": corpus_tag,
+                }
+    with col_cnt:
+        st.write("")
+        st.write(f"**共 {len(poems)} 首**")
+    if not api_ok:
+        st.caption(
+            f"未设置 {ZHIPU_API_KEY_ENV} 时仅尝试本地诗库匹配；"
+            f"需联网/模型补全时请配置该环境变量。"
+        )
+
+    if q:
+        filtered_poems = search_poems(poems, search_query)
     else:
         filtered_poems = poems
+
+    if q:
+        if not filtered_poems:
+            st.warning(f"未找到匹配「{search_query}」的诗歌。")
+            st.info("💡 提示：可尝试作者名或标题关键词；或使用上方「联网搜索」。")
+        else:
+            st.success(f"找到 {len(filtered_poems)} 首匹配的诗歌")
+    else:
         st.info(
             f"显示全部 {len(filtered_poems)} 首诗歌（在搜索框输入关键词可进行筛选）"
         )
+
+    render_web_poem_preview_block(
+        preview_state_key=preview_key_browse,
+        trimmed_query=q,
+        corpus=poems,
+        after_commit_pop_flashcard=False,
+    )
+
+    if not filtered_poems:
+        return
 
     # Pagination
     poems_per_page = 5
@@ -560,11 +698,59 @@ def flashcard_mode():
             st.rerun()
 
     with nav_col2:
-        # Search box
-        search_query = st.text_input(
-            "搜索诗歌（标题、作者或内容）",
-            placeholder="输入关键词...",
-            key="flashcard_search",
+        preview_key_fc = "web_preview_flashcard"
+        fc_sq_col, fc_web_col = st.columns([4, 1])
+        with fc_sq_col:
+            search_query = st.text_input(
+                "搜索诗歌（标题、作者或内容）",
+                placeholder="输入关键词...",
+                key="flashcard_search",
+            )
+        q_fc = search_query.strip() if search_query else ""
+        pv_fc = st.session_state.get(preview_key_fc)
+        if pv_fc and pv_fc.get("query") != q_fc:
+            st.session_state.pop(preview_key_fc, None)
+
+        api_ok_fc = bool(os.environ.get(ZHIPU_API_KEY_ENV))
+        use_web_fc = _glm_use_web_search()
+        with fc_web_col:
+            st.write("")
+            fc_btn_help = (
+                "使用智谱 GLM 检索诗词（需 ZHIPU_API_KEY）。"
+                "侧边栏可关闭「联网」以仅用模型。"
+            )
+            if st.button(
+                "联网搜索" if use_web_fc else "模型检索",
+                disabled=not q_fc,
+                key="flashcard_web_glm_btn",
+                help=fc_btn_help,
+            ):
+                with st.spinner("正在检索…"):
+                    plist_fc, err_fc, corpus_tag_fc = preview_poems_from_web_query(
+                        q_fc,
+                        use_web_search=use_web_fc,
+                        corpus=poems,
+                    )
+                if err_fc:
+                    st.error(err_fc)
+                else:
+                    st.session_state[preview_key_fc] = {
+                        "query": q_fc,
+                        "poems": plist_fc,
+                        "use_web_search": use_web_fc,
+                        "corpus_tag": corpus_tag_fc,
+                    }
+        if not api_ok_fc:
+            st.caption(
+                f"未设置 {ZHIPU_API_KEY_ENV} 时仅尝试本地诗库匹配；"
+                f"需联网/模型补全时请配置该环境变量。"
+            )
+
+        render_web_poem_preview_block(
+            preview_state_key=preview_key_fc,
+            trimmed_query=q_fc,
+            corpus=poems,
+            after_commit_pop_flashcard=True,
         )
 
         if search_query and search_query.strip():
@@ -622,29 +808,7 @@ def flashcard_mode():
                         st.session_state.flashcard_state = flashcard_state
                         st.rerun()
             else:
-                st.info("未找到匹配的诗歌")
-                if os.environ.get(ZHIPU_API_KEY_ENV) and search_query.strip():
-                    if st.button(
-                        "使用智谱联网搜索并补充",
-                        key="web_supplement_flashcard_btn",
-                    ):
-                        with st.spinner("正在联网检索…"):
-                            added, err = supplement_poems_from_web_query(
-                                search_query.strip(), poems
-                            )
-                        if err:
-                            st.error(err)
-                        elif added == 0:
-                            st.warning(
-                                "未从网络补充到新诗（可能已收录或检索无明确匹配）。"
-                            )
-                        else:
-                            st.success(f"已补充 {added} 首诗到扩展库；闪卡列表已刷新。")
-                            invalidate_poems_cache()
-                            st.session_state.pop("flashcard_state", None)
-                            st.rerun()
-                elif search_query.strip():
-                    st.caption(f"联网补充需设置环境变量 {ZHIPU_API_KEY_ENV}。")
+                st.info("未找到匹配的诗歌。可使用上方「联网搜索」检索并加入扩展库。")
 
     # Collapsible section for Author and Title selection
     with st.expander("📋 高级导航（按作者/标题选择）", expanded=False):
@@ -1308,6 +1472,13 @@ def main():
             format_func=lambda x: "简体中文" if x == "simplified" else "繁體中文",
             index=0,
             key="character_set",
+        )
+        st.toggle(
+            "诗词检索启用联网",
+            value=True,
+            key="glm_poem_web_search",
+            help="开启时「联网搜索/模型检索」会调用智谱联网工具；"
+            "关闭则仅聊天模型、无实时网页依据，易出错，请谨慎核对。",
         )
 
     # Handle mode switching from analytics

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from src.zhipu_glm import ZHIPU_API_KEY_ENV, chat_completion
 
-QUERY = "2026年4月5日香港是什么天气"
+QUERY = "月落星稀天欲明是谁的诗?整首诗是怎么样的？"
 MESSAGES = [{"role": "user", "content": QUERY}]
 
 

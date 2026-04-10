@@ -159,9 +159,9 @@ def visualize_character(char: str, output_base_dir: Path | None = None):
     if output_base_dir is None:
         output_base_dir = Path("stroke_visualizations")
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"可视化字符: {char}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     info = get_stroke_order(char)
     if info is None:
