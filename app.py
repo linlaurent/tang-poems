@@ -150,6 +150,12 @@ def get_user_id() -> str:
     ):
         return st.session_state.user_id
 
+    # Check for DEFAULT_POEM_USER environment variable (for auto-login)
+    default_user = os.environ.get("DEFAULT_POEM_USER")
+    if default_user and default_user.strip():
+        st.session_state.user_id = default_user.strip()
+        return default_user.strip()
+
     # Try to get user email from Streamlit (available in Streamlit Cloud)
     try:
         # In newer Streamlit versions, user info might be available
