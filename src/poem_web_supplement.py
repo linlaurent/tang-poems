@@ -387,6 +387,35 @@ def fetch_poems_via_glm_web_search(
     return chat_completion(messages, web_search=use_web_search)
 
 
+def fetch_poem_meaning_explanation(poem: dict, *, use_web_search: bool = True) -> str:
+    """
+    Ask GLM for 释义/赏析 of a single poem. Uses Zhipu web_search when enabled.
+    Raises ValueError if ZHIPU_API_KEY is missing (from chat_completion).
+    """
+    title = str(poem.get("title") or "").strip() or "无题"
+    author = str(poem.get("author") or "").strip() or "未知"
+    dynasty = str(poem.get("dynasty") or "").strip()
+    content = str(poem.get("content") or "").strip()
+    if use_web_search:
+        system = (
+            "你是古典诗词助手。请结合联网检索到的可靠资料，对给定诗作进行通俗释义与简要赏析"
+            "（可含创作背景、意象与情感）。条理清晰，分段或分点均可；"
+            "不要编造与权威出处明显冲突的诗题、作者或正文。"
+        )
+    else:
+        system = (
+            "你是古典诗词助手。当前未联网，请仅依据你掌握的知识作答；"
+            "对不确定处请明确说明。对给定诗作进行通俗释义与简要赏析。"
+        )
+    dyn_line = f"朝代：{dynasty}\n" if dynasty else ""
+    user = f"诗题：{title}\n" f"作者：{author}\n" f"{dyn_line}" f"正文：\n{content}"
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    return chat_completion(messages, web_search=use_web_search)
+
+
 def preview_poems_from_web_query(
     user_query: str,
     *,

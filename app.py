@@ -39,6 +39,7 @@ from src.flashcards import (
 )
 from src.poem_web_supplement import (
     commit_poems_to_supplement,
+    fetch_poem_meaning_explanation,
     is_poem_in_corpus,
     preview_poems_from_web_query,
     validate_glm_poem_against_corpus,
@@ -990,6 +991,57 @@ def flashcard_mode():
             _nlines = current_poem["content"].count("\n") + 1
             _height = max(200, _nlines * 50 + 120)
             st_html(_stroke_html, height=_height, scrolling=False)
+
+            _fc_meaning_cache: dict = st.session_state.setdefault(
+                "flashcard_meaning_cache", {}
+            )
+            _cid = flashcard_state.get("current_id", "") or ""
+            _use_web_meaning = _glm_use_web_search()
+            _meaning_btn_label = "联网查释义" if _use_web_meaning else "模型释义"
+            _meaning_api_ok = bool(os.environ.get(ZHIPU_API_KEY_ENV))
+            _mcol1, _mcol2 = st.columns(2)
+            with _mcol1:
+                if st.button(
+                    _meaning_btn_label,
+                    width="stretch",
+                    disabled=not _meaning_api_ok or not _cid,
+                    key="flashcard_meaning_fetch_btn",
+                    help=(
+                        "使用智谱 GLM 查询本诗释义（需 ZHIPU_API_KEY）。"
+                        "侧边栏可关闭「联网」以仅用模型。"
+                    ),
+                ):
+                    with st.spinner("正在查询释义…"):
+                        try:
+                            _txt = fetch_poem_meaning_explanation(
+                                current_poem,
+                                use_web_search=_use_web_meaning,
+                            )
+                            _fc_meaning_cache[_cid] = _txt
+                        except ValueError as e:
+                            st.error(str(e))
+                        except Exception as e:
+                            st.error(f"查询失败：{e}")
+            with _mcol2:
+                if st.button(
+                    "重新查询",
+                    width="stretch",
+                    disabled=not _meaning_api_ok
+                    or not _cid
+                    or _cid not in _fc_meaning_cache,
+                    key="flashcard_meaning_refresh_btn",
+                    help="清除本诗的释义缓存，可再次点击左侧按钮获取新结果。",
+                ):
+                    _fc_meaning_cache.pop(_cid, None)
+                    st.rerun()
+            if not _meaning_api_ok:
+                st.caption(
+                    f"未设置 {ZHIPU_API_KEY_ENV} 时无法使用释义查询；"
+                    f"请配置环境变量后刷新页面。"
+                )
+            elif _cid and _cid in _fc_meaning_cache:
+                with st.expander("释义", expanded=True):
+                    st.markdown(_fc_meaning_cache[_cid])
 
             # Marking buttons
             col1, col2 = st.columns(2)
