@@ -328,8 +328,7 @@ def get_recommendations(
                     "type": "encouragement",
                     "priority": "low",
                     "message": (
-                        f"最近7天平均每天学习 {recent_avg:.1f} 首诗歌，"
-                        "保持这个节奏！"
+                        f"最近7天平均每天学习 {recent_avg:.1f} 首诗歌，保持这个节奏！"
                     ),
                 }
             )
