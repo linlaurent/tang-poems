@@ -15,7 +15,12 @@ from src.analytics import (
     get_recommendations,
     get_study_stats,
 )
-from src.data_loader import invalidate_poems_cache, load_poems, search_poems
+from src.data_loader import (
+    get_poem_index_by_id,
+    invalidate_poems_cache,
+    load_poems,
+    search_poems,
+)
 from src.flashcards import (
     apply_filter,
     export_progress_data,
@@ -264,7 +269,7 @@ def render_web_poem_preview_block(
                         chosen.append(plist[idx])
                 except (ValueError, IndexError):
                     continue
-            added, err = commit_poems_to_supplement(chosen, corpus)
+            added, err, added_poems = commit_poems_to_supplement(chosen, corpus)
             if err:
                 st.error(err)
             elif added == 0:
@@ -274,6 +279,12 @@ def render_web_poem_preview_block(
                 invalidate_poems_cache()
                 if after_commit_pop_flashcard:
                     st.session_state.pop("flashcard_state", None)
+                    if added == 1 and added_poems:
+                        _new_id = added_poems[0].get("id")
+                        if _new_id:
+                            st.session_state[
+                                "flashcard_target_poem_id_after_web_commit"
+                            ] = _new_id
                 toast = getattr(st, "toast", None)
                 if callable(toast):
                     toast(f"已加入 {added} 首诗")
@@ -603,6 +614,17 @@ def flashcard_mode():
         jump_idx = st.session_state.pop("jump_to_index")
         if 0 <= jump_idx < len(poems):
             flashcard_state = jump_to_poem(flashcard_state, jump_idx, save=False)
+            st.session_state.flashcard_state = flashcard_state
+            st.rerun()
+
+    # After adding exactly one poem from web search in flashcard mode, show that card
+    _web_commit_target = st.session_state.pop(
+        "flashcard_target_poem_id_after_web_commit", None
+    )
+    if _web_commit_target:
+        _jump_idx = get_poem_index_by_id(poems, _web_commit_target)
+        if _jump_idx is not None:
+            flashcard_state = jump_to_poem(flashcard_state, _jump_idx, save=True)
             st.session_state.flashcard_state = flashcard_state
             st.rerun()
 

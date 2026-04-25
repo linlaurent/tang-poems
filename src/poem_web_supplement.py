@@ -443,8 +443,11 @@ def preview_poems_from_web_query(
 
 def commit_poems_to_supplement(
     candidates: list[dict], corpus: list[dict]
-) -> tuple[int, str | None]:
-    """Dedupe against corpus and batch; append new rows to supplement file."""
+) -> tuple[int, str | None, list[dict]]:
+    """Dedupe against corpus and batch; append new rows to supplement file.
+
+    Returns (count, error, poems_actually_appended).
+    """
     existing = corpus_title_author_keys(corpus)
     to_add: list[dict] = []
     seen_new: set[tuple[str, str]] = set()
@@ -458,10 +461,10 @@ def commit_poems_to_supplement(
         existing.add(key)
 
     if not to_add:
-        return 0, None
+        return 0, None, []
 
     append_supplement_poems(to_add)
-    return len(to_add), None
+    return len(to_add), None, to_add
 
 
 def supplement_poems_from_web_query(
@@ -482,4 +485,7 @@ def supplement_poems_from_web_query(
         return 0, err
     if not poems:
         return 0, None
-    return commit_poems_to_supplement(poems, corpus)
+    n, err2, _ = commit_poems_to_supplement(poems, corpus)
+    if err2:
+        return 0, err2
+    return n, None
