@@ -28,6 +28,29 @@ def _is_cjk(ch: str) -> bool:
     return bool(_CJK_RE.fullmatch(ch))
 
 
+def first_cjk_char(text: str) -> str | None:
+    """Return the first CJK ideograph in *text*, or ``None``."""
+    for ch in text:
+        if _is_cjk(ch):
+            return ch
+    return None
+
+
+def cjk_chars_in_text(text: str) -> list[str]:
+    """All CJK ideographs in *text* in order (including duplicates)."""
+    return [ch for ch in text if _is_cjk(ch)]
+
+
+def pinyin_readings_plain(ch: str) -> str:
+    """Tone-marked pinyin for *ch*; heteronyms joined with `` / `` (plain text)."""
+    if not ch:
+        return ""
+    readings = pinyin(ch, style=Style.TONE, heteronym=True)
+    if readings and readings[0]:
+        return " / ".join(readings[0])
+    return ""
+
+
 def _get_pinyin(ch: str) -> str:
     """Return pinyin string for a single CJK character.
 

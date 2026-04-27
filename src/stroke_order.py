@@ -105,3 +105,27 @@ def get_stroke_order(char: str) -> dict[str, Any] | None:
 
     strokes = data["strokes"]
     return {"char": char, "stroke_count": len(strokes), "strokes": strokes}
+
+
+def stroke_counts_for_characters(chars: list[str]) -> dict[str, int | None]:
+    """Map each unique char in *chars* to stroke count (parallel I/O).
+
+    Values are ``None`` when no stroke data exists. *chars* order is ignored;
+    only uniqueness matters.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if not chars:
+        return {}
+    unique = list(dict.fromkeys(chars))
+    result: dict[str, int | None] = dict.fromkeys(unique, None)
+    with ThreadPoolExecutor(max_workers=min(len(unique), 16)) as pool:
+        future_to_char = {pool.submit(get_stroke_order, c): c for c in unique}
+        for future in as_completed(future_to_char):
+            c = future_to_char[future]
+            try:
+                info = future.result()
+                result[c] = info["stroke_count"] if info else None
+            except Exception:
+                result[c] = None
+    return result

@@ -50,7 +50,12 @@ from src.poem_web_supplement import (
     validate_glm_poem_against_corpus,
 )
 from src.quiz import check_answer, get_next_question, initialize_quiz_session
-from src.stroke_widget import render_poem_with_strokes
+from src.stroke_order import stroke_counts_for_characters
+from src.stroke_widget import (
+    cjk_chars_in_text,
+    pinyin_readings_plain,
+    render_poem_with_strokes,
+)
 from src.zhipu_glm import ZHIPU_API_KEY_ENV
 
 # Page configuration
@@ -1506,6 +1511,66 @@ def analytics_mode():
                 st.info("CSV导出需要pandas库")
 
 
+def character_lookup_mode() -> None:
+    """Look up pinyin and stroke-based traits for words or full sentences."""
+    st.header("🔎 查拼音与字形")
+    st.caption(
+        "输入词语、诗句或整段文字：下表按阅读顺序逐字列出拼音、笔画、Unicode；"
+        "再往下可悬停看注音、双击看笔顺（与闪卡中「全部笔顺」相同）。"
+    )
+
+    from streamlit.components.v1 import html as st_html
+
+    with st.form("char_lookup_form", clear_on_submit=False):
+        raw = st.text_area(
+            "汉字词句",
+            height=140,
+            placeholder="可输入多字、一句诗、一段文字；标点与换行会保留在下方笔顺区。",
+            key="char_lookup_input",
+        )
+        st.form_submit_button(
+            "应用",
+            type="primary",
+            use_container_width=True,
+            help="也可在输入框内使用 ⌘+Enter（macOS）提交表单",
+        )
+
+    text = raw.strip()
+    cjk = cjk_chars_in_text(text)
+
+    if not cjk:
+        st.info("请在上方输入至少一个汉字，然后点击「应用」。")
+        return
+
+    counts = stroke_counts_for_characters(cjk)
+    rows: list[dict[str, str | int]] = []
+    for i, ch in enumerate(cjk, start=1):
+        n = counts.get(ch)
+        rows.append(
+            {
+                "#": i,
+                "字": ch,
+                "拼音": pinyin_readings_plain(ch) or "（无）",
+                "笔画": n if n is not None else "暂无",
+                "Unicode": f"U+{ord(ch):04X}",
+            }
+        )
+
+    st.subheader("逐字信息")
+    st.caption(f"共 {len(cjk)} 字（同字重复出现会各占一行，便于对位朗读）。")
+    _df_h = min(420, max(120, 36 + 35 * min(len(rows), 14)))
+    st.dataframe(rows, width="stretch", hide_index=True, height=_df_h)
+
+    st.divider()
+    st.markdown(
+        "**笔顺与注音**（悬停见拼音，双击单字看笔顺；句内「全部笔顺」可依次浏览。）"
+    )
+    _stroke_html = render_poem_with_strokes(text)
+    _nlines = text.count("\n") + 1
+    _height = max(200, _nlines * 50 + 120)
+    st_html(_stroke_html, height=_height, scrolling=False)
+
+
 def main():
     """Main application entry point."""
     st.title("📚 唐诗三百首学习应用")
@@ -1540,7 +1605,13 @@ def main():
 
         mode = st.radio(
             "选择学习模式：",
-            ["🃏 闪卡模式", "📖 浏览模式", "🎯 测验模式", "📊 数据分析"],
+            [
+                "🃏 闪卡模式",
+                "📖 浏览模式",
+                "🎯 测验模式",
+                "🔎 查拼音与字形",
+                "📊 数据分析",
+            ],
             label_visibility="collapsed",
         )
 
@@ -1573,6 +1644,8 @@ def main():
         display_mode()
     elif "测验模式" in mode:
         quiz_mode()
+    elif "查拼音" in mode:
+        character_lookup_mode()
     elif "数据分析" in mode:
         analytics_mode()
 
