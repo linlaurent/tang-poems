@@ -42,6 +42,7 @@ from src.flashcards import (
     reveal_content,
     save_progress,
 )
+from src.poem_explanations_store import get_explanation, upsert_explanation
 from src.poem_web_supplement import (
     commit_poems_to_supplement,
     fetch_poem_meaning_explanation,
@@ -56,7 +57,7 @@ from src.stroke_widget import (
     pinyin_readings_plain,
     render_poem_with_strokes,
 )
-from src.zhipu_glm import ZHIPU_API_KEY_ENV
+from src.zhipu_glm import DEFAULT_MODEL, ZHIPU_API_KEY_ENV
 
 # Page configuration
 st.set_page_config(
@@ -888,7 +889,18 @@ def flashcard_mode():
             _fc_meaning_cache: dict = st.session_state.setdefault(
                 "flashcard_meaning_cache", {}
             )
+            _meaning_skip_disk: set = st.session_state.setdefault(
+                "flashcard_meaning_skip_disk", set()
+            )
             _cid = flashcard_state.get("current_id", "") or ""
+            if (
+                _cid
+                and _cid not in _fc_meaning_cache
+                and _cid not in _meaning_skip_disk
+            ):
+                _disk_expl = get_explanation(_cid)
+                if _disk_expl is not None:
+                    _fc_meaning_cache[_cid] = _disk_expl
             _use_web_meaning = _glm_use_web_search()
             _meaning_btn_label = "联网查释义" if _use_web_meaning else "模型释义"
             _meaning_api_ok = bool(os.environ.get(ZHIPU_API_KEY_ENV))
@@ -911,6 +923,13 @@ def flashcard_mode():
                                 use_web_search=_use_web_meaning,
                             )
                             _fc_meaning_cache[_cid] = _txt
+                            upsert_explanation(
+                                _cid,
+                                _txt,
+                                web_search=_use_web_meaning,
+                                model=DEFAULT_MODEL,
+                            )
+                            _meaning_skip_disk.discard(_cid)
                         except ValueError as e:
                             st.error(str(e))
                         except Exception as e:
@@ -925,6 +944,7 @@ def flashcard_mode():
                     key="flashcard_meaning_refresh_btn",
                     help="清除本诗的释义缓存，可再次点击左侧按钮获取新结果。",
                 ):
+                    _meaning_skip_disk.add(_cid)
                     _fc_meaning_cache.pop(_cid, None)
                     st.rerun()
             if not _meaning_api_ok:
@@ -932,7 +952,7 @@ def flashcard_mode():
                     f"未设置 {ZHIPU_API_KEY_ENV} 时无法使用释义查询；"
                     f"请配置环境变量后刷新页面。"
                 )
-            elif _cid and _cid in _fc_meaning_cache:
+            if _cid and _cid in _fc_meaning_cache:
                 with st.expander("释义", expanded=True):
                     st.markdown(_fc_meaning_cache[_cid])
 

@@ -387,10 +387,18 @@ def fetch_poems_via_glm_web_search(
     return chat_completion(messages, web_search=use_web_search)
 
 
-def fetch_poem_meaning_explanation(poem: dict, *, use_web_search: bool = True) -> str:
+def fetch_poem_meaning_explanation(
+    poem: dict,
+    *,
+    use_web_search: bool = True,
+    timing: bool = True,
+) -> str:
     """
     Ask GLM for 释义/赏析 of a single poem. Uses Zhipu web_search when enabled.
     Raises ValueError if ZHIPU_API_KEY is missing (from chat_completion).
+
+    ``timing``: when False, suppress per-request elapsed-time logs on stderr
+    (useful for batch scripts).
     """
     title = str(poem.get("title") or "").strip() or "无题"
     author = str(poem.get("author") or "").strip() or "未知"
@@ -408,12 +416,12 @@ def fetch_poem_meaning_explanation(poem: dict, *, use_web_search: bool = True) -
             "对不确定处请明确说明。对给定诗作进行通俗释义与简要赏析。"
         )
     dyn_line = f"朝代：{dynasty}\n" if dynasty else ""
-    user = f"诗题：{title}\n" f"作者：{author}\n" f"{dyn_line}" f"正文：\n{content}"
+    user = f"诗题：{title}\n作者：{author}\n{dyn_line}正文：\n{content}"
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
-    return chat_completion(messages, web_search=use_web_search)
+    return chat_completion(messages, web_search=use_web_search, timing=timing)
 
 
 def preview_poems_from_web_query(
