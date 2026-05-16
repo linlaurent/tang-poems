@@ -1,4 +1,4 @@
-"""Main Streamlit application for learning 300 Tang Poems."""
+"""Main Streamlit application for learning classical Chinese poetry."""
 
 import json
 import os
@@ -16,10 +16,13 @@ from src.analytics import (
     get_study_stats,
 )
 from src.data_loader import (
+    CORPORA,
+    DEFAULT_CORPUS_KEY,
     get_poem_index_by_id,
     invalidate_poems_cache,
     load_poems,
     search_poems,
+    supplement_poems_path,
 )
 from src.flashcards import (
     apply_filter,
@@ -62,7 +65,7 @@ from src.zhipu_glm import DEFAULT_MODEL, ZHIPU_API_KEY_ENV
 
 # Page configuration
 st.set_page_config(
-    page_title="唐诗三百首学习",
+    page_title="诗词学习",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -190,6 +193,12 @@ def _get_character_set() -> str:
     return st.session_state.get("character_set", "simplified")
 
 
+def _get_corpus_key() -> str:
+    """Get the current poetry corpus from session state."""
+    corpus_key = st.session_state.get("corpus_key", DEFAULT_CORPUS_KEY)
+    return corpus_key if corpus_key in CORPORA else DEFAULT_CORPUS_KEY
+
+
 def _web_multiselect_label_index(label: str) -> int:
     if not label.startswith("["):
         raise ValueError("invalid label")
@@ -202,6 +211,7 @@ def render_web_poem_preview_block(
     preview_state_key: str,
     trimmed_query: str,
     corpus: list[dict],
+    corpus_key: str,
     after_commit_pop_flashcard: bool = False,
 ) -> None:
     preview = st.session_state.get(preview_state_key)
@@ -268,7 +278,7 @@ def render_web_poem_preview_block(
         default=default_labels,
         key=f"{preview_state_key}_multiselect",
     )
-    st.caption("保存位置：data/poems_supplement.json")
+    st.caption(f"保存位置：data/{supplement_poems_path(corpus_key).name}")
 
     bcol1, bcol2 = st.columns(2)
     with bcol1:
@@ -284,6 +294,7 @@ def render_web_poem_preview_block(
             added, err, added_poems = commit_poems_to_supplement(
                 chosen,
                 corpus,
+                corpus_key=corpus_key,
                 explanations_by_poem_id=preview.get("explanations")
                 if isinstance(preview.get("explanations"), dict)
                 else None,
@@ -306,7 +317,7 @@ def render_web_poem_preview_block(
                             ] = _new_id
                 toast = getattr(st, "toast", None)
                 if callable(toast):
-                    toast(f"已加入 {added} 首诗")
+                    toast(f"已加入 {added} 首诗词")
                 st.rerun()
     with bcol2:
         if st.button("清除预览", key=f"{preview_state_key}_clear"):
@@ -319,7 +330,8 @@ def quiz_mode():
     st.header("🎯 测验模式")
     default_quiz_source = "已掌握"
 
-    poems = load_poems(_get_character_set())
+    corpus_key = _get_corpus_key()
+    poems = load_poems(_get_character_set(), corpus_key)
 
     if not poems:
         st.error("无法加载诗歌数据。")
@@ -327,8 +339,12 @@ def quiz_mode():
 
     user_id = get_user_id()
     flashcard_state = st.session_state.get("flashcard_state")
-    if flashcard_state is None or flashcard_state.get("poems") != poems:
-        flashcard_state = initialize_flashcard_session(poems, user_id)
+    if (
+        flashcard_state is None
+        or flashcard_state.get("poems") != poems
+        or flashcard_state.get("corpus_key") != corpus_key
+    ):
+        flashcard_state = initialize_flashcard_session(poems, user_id, corpus_key)
 
     known_poems = flashcard_state.get("known_poems", set())
     practice_poems = flashcard_state.get("practice_poems", set())
@@ -467,7 +483,8 @@ def flashcard_mode():
     if user_id == "guest":
         st.warning("⚠️ 您当前以访客模式使用。请在侧边栏输入用户名以保存学习进度。")
 
-    poems = load_poems(_get_character_set())
+    corpus_key = _get_corpus_key()
+    poems = load_poems(_get_character_set(), corpus_key)
 
     if not poems:
         st.error("无法加载诗歌数据。")
@@ -496,6 +513,14 @@ def flashcard_mode():
         )
         if existing_charset != _get_character_set():
             needs_reinit = True
+        # Check if corpus changed
+        existing_corpus_key = (
+            st.session_state.flashcard_state.get("corpus_key")
+            if isinstance(st.session_state.flashcard_state, dict)
+            else None
+        )
+        if existing_corpus_key != corpus_key:
+            needs_reinit = True
 
     if needs_reinit:
         # User changed or first time, reinitialize
@@ -508,9 +533,10 @@ def flashcard_mode():
                 user_id = "guest"
 
             st.session_state.flashcard_state = initialize_flashcard_session(
-                poems, user_id
+                poems, user_id, corpus_key
             )
             st.session_state.flashcard_state["character_set"] = _get_character_set()
+            st.session_state.flashcard_state["corpus_key"] = corpus_key
             # Initialize filtered indices
             st.session_state.flashcard_state = apply_filter(
                 st.session_state.flashcard_state
@@ -681,6 +707,7 @@ def flashcard_mode():
                     plist_fc, err_fc, corpus_tag_fc = preview_poems_from_web_query(
                         q_fc,
                         corpus=poems,
+                        corpus_key=corpus_key,
                     )
                 if err_fc:
                     st.error(err_fc)
@@ -713,6 +740,7 @@ def flashcard_mode():
             preview_state_key=preview_key_fc,
             trimmed_query=q_fc,
             corpus=poems,
+            corpus_key=corpus_key,
             after_commit_pop_flashcard=True,
         )
 
@@ -1197,12 +1225,13 @@ def analytics_mode():
         return
 
     # Load poems and logs
-    poems = load_poems(_get_character_set())
+    corpus_key = _get_corpus_key()
+    poems = load_poems(_get_character_set(), corpus_key)
     if not poems:
         st.error("无法加载诗歌数据。")
         return
 
-    log_entries = load_log(user_id)
+    log_entries = load_log(user_id, corpus_key)
 
     if not log_entries:
         st.info(
@@ -1212,7 +1241,7 @@ def analytics_mode():
         return
 
     # Initialize flashcard state to get current progress
-    flashcard_state = initialize_flashcard_session(poems, user_id)
+    flashcard_state = initialize_flashcard_session(poems, user_id, corpus_key)
 
     # Calculate analytics
     timeline = get_learning_timeline(log_entries)
@@ -1507,7 +1536,7 @@ def character_lookup_mode() -> None:
 
 def main():
     """Main application entry point."""
-    st.title("📚 唐诗三百首学习应用")
+    st.title("📚 诗词学习应用")
     st.markdown("---")
 
     # Get user ID (needed for flashcard mode)
@@ -1551,12 +1580,26 @@ def main():
         st.divider()
         st.header("设置")
         st.radio(
+            "诗词库",
+            list(CORPORA.keys()),
+            format_func=lambda x: str(CORPORA[x]["display_name"]),
+            index=list(CORPORA.keys()).index(_get_corpus_key()),
+            key="corpus_key",
+        )
+        st.radio(
             "字体选择",
             ["simplified", "traditional"],
             format_func=lambda x: "简体中文" if x == "simplified" else "繁體中文",
             index=0,
             key="character_set",
         )
+
+    corpus_key = _get_corpus_key()
+    if st.session_state.get("_active_corpus_key") != corpus_key:
+        st.session_state["_active_corpus_key"] = corpus_key
+        st.session_state.pop("flashcard_state", None)
+        st.session_state.pop("quiz_state", None)
+        st.session_state.pop("web_preview_flashcard", None)
 
     # Handle mode switching from analytics
     if st.session_state.get("switch_to_flashcard", False):

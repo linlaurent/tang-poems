@@ -11,13 +11,36 @@ from pypinyin import lazy_pinyin
 # Import helper functions
 try:
     # Try relative import first (when used as a module)
-    from .data_loader import get_poem_id_by_index, get_poem_index_by_id
+    from .data_loader import (
+        DEFAULT_CORPUS_KEY,
+        get_poem_id_by_index,
+        get_poem_index_by_id,
+        normalize_corpus_key,
+    )
 except ImportError:
     # Fall back to absolute import (when used directly)
-    from src.data_loader import get_poem_id_by_index, get_poem_index_by_id
+    from src.data_loader import (
+        DEFAULT_CORPUS_KEY,
+        get_poem_id_by_index,
+        get_poem_index_by_id,
+        normalize_corpus_key,
+    )
 
 
-def get_progress_file_path(user_id: str) -> Path:
+def _safe_user_id(user_id: str) -> str:
+    return "".join(
+        c if c.isalnum() or c in ("-", "_", "@", ".") else "_" for c in user_id
+    )
+
+
+def _corpus_filename_part(corpus_key: str | None = None) -> str:
+    corpus_key = normalize_corpus_key(corpus_key)
+    if corpus_key == DEFAULT_CORPUS_KEY:
+        return ""
+    return f"_{corpus_key}"
+
+
+def get_progress_file_path(user_id: str, corpus_key: str | None = None) -> Path:
     """Get the path to the progress save file for a specific user."""
     # Validate user_id
     if not user_id or not isinstance(user_id, str):
@@ -50,13 +73,12 @@ def get_progress_file_path(user_id: str) -> Path:
         user_dir = data_dir
 
     # Sanitize user_id for filename (replace special chars)
-    safe_user_id = "".join(
-        c if c.isalnum() or c in ("-", "_", "@", ".") else "_" for c in user_id
-    )
-    return user_dir / f"flashcard_progress_{safe_user_id}.json"
+    safe_user_id = _safe_user_id(user_id)
+    corpus_part = _corpus_filename_part(corpus_key)
+    return user_dir / f"flashcard_progress{corpus_part}_{safe_user_id}.json"
 
 
-def get_log_file_path(user_id: str) -> Path:
+def get_log_file_path(user_id: str, corpus_key: str | None = None) -> Path:
     """Get the path to the change log file for a specific user."""
     # Validate user_id
     if not user_id or not isinstance(user_id, str):
@@ -89,10 +111,9 @@ def get_log_file_path(user_id: str) -> Path:
         user_dir = data_dir
 
     # Sanitize user_id for filename (replace special chars)
-    safe_user_id = "".join(
-        c if c.isalnum() or c in ("-", "_", "@", ".") else "_" for c in user_id
-    )
-    return user_dir / f"flashcard_log_{safe_user_id}.json"
+    safe_user_id = _safe_user_id(user_id)
+    corpus_part = _corpus_filename_part(corpus_key)
+    return user_dir / f"flashcard_log{corpus_part}_{safe_user_id}.json"
 
 
 def log_change(
@@ -100,6 +121,7 @@ def log_change(
     event_type: str,
     poem_id: Optional[str] = None,
     metadata: Optional[dict] = None,
+    corpus_key: str | None = None,
 ) -> bool:
     """
     Log a change event to the user's log file.
@@ -118,7 +140,7 @@ def log_change(
         # Don't log for guest users
         return False
 
-    log_file = get_log_file_path(user_id)
+    log_file = get_log_file_path(user_id, corpus_key)
 
     try:
         # Prepare log entry
@@ -158,7 +180,7 @@ def log_change(
         return False
 
 
-def load_log(user_id: str) -> list[dict]:
+def load_log(user_id: str, corpus_key: str | None = None) -> list[dict]:
     """
     Load all log entries for a specific user.
 
@@ -171,7 +193,7 @@ def load_log(user_id: str) -> list[dict]:
     if not user_id or user_id == "guest":
         return []
 
-    log_file = get_log_file_path(user_id)
+    log_file = get_log_file_path(user_id, corpus_key)
 
     if not log_file.exists():
         return []
@@ -275,7 +297,11 @@ def migrate_progress_from_indices_to_ids(
     return migrated
 
 
-def load_progress(user_id: str, poems: Optional[list[dict]] = None) -> Optional[dict]:
+def load_progress(
+    user_id: str,
+    poems: Optional[list[dict]] = None,
+    corpus_key: str | None = None,
+) -> Optional[dict]:
     """
     Load flashcard progress from file for a specific user.
     Automatically migrates from index-based to ID-based format if needed.
@@ -285,7 +311,7 @@ def load_progress(user_id: str, poems: Optional[list[dict]] = None) -> Optional[
     if not user_id or not isinstance(user_id, str) or user_id == "guest":
         return None
 
-    progress_file = get_progress_file_path(user_id)
+    progress_file = get_progress_file_path(user_id, corpus_key)
 
     if not progress_file.exists():
         return None
@@ -384,12 +410,13 @@ def save_progress(flashcard_state: dict, user_id: Optional[str] = None) -> bool:
     # Get user_id from flashcard_state if not provided
     if user_id is None:
         user_id = flashcard_state.get("user_id")
+    corpus_key = flashcard_state.get("corpus_key", DEFAULT_CORPUS_KEY)
 
     if not user_id or user_id == "guest":
         # Don't save progress for guest users
         return False
 
-    progress_file = get_progress_file_path(user_id)
+    progress_file = get_progress_file_path(user_id, corpus_key)
 
     try:
         # Prepare data for saving (convert sets to lists for JSON)
@@ -397,6 +424,7 @@ def save_progress(flashcard_state: dict, user_id: Optional[str] = None) -> bool:
             "known_poems": list(flashcard_state.get("known_poems", set())),
             "practice_poems": list(flashcard_state.get("practice_poems", set())),
             "current_id": flashcard_state.get("current_id", ""),
+            "corpus_key": normalize_corpus_key(corpus_key),
             "last_updated": datetime.now().isoformat(),
             "migrated_to_ids": True,
         }
@@ -496,7 +524,13 @@ def import_progress_data(
             "imported_practice": imported_practice,
             "total_imported": imported_known + imported_practice,
         }
-        log_change(user_id, "imported", None, metadata)
+        log_change(
+            user_id,
+            "imported",
+            None,
+            metadata,
+            flashcard_state.get("corpus_key", DEFAULT_CORPUS_KEY),
+        )
 
     return flashcard_state
 
@@ -513,7 +547,12 @@ def delete_progress_file(
         print("Error: user_id is required to delete progress file")
         return False
 
-    progress_file = get_progress_file_path(user_id)
+    corpus_key = (
+        flashcard_state.get("corpus_key", DEFAULT_CORPUS_KEY)
+        if flashcard_state
+        else DEFAULT_CORPUS_KEY
+    )
+    progress_file = get_progress_file_path(user_id, corpus_key)
     try:
         if progress_file.exists():
             progress_file.unlink()
@@ -523,7 +562,9 @@ def delete_progress_file(
         return False
 
 
-def initialize_flashcard_session(poems: list[dict], user_id: str) -> dict:
+def initialize_flashcard_session(
+    poems: list[dict], user_id: str, corpus_key: str | None = None
+) -> dict:
     """
     Initialize flashcard session state for a specific user.
     Loads progress from file if it exists.
@@ -531,6 +572,7 @@ def initialize_flashcard_session(poems: list[dict], user_id: str) -> dict:
     # Validate user_id
     if not user_id or not isinstance(user_id, str):
         user_id = "guest"
+    corpus_key = normalize_corpus_key(corpus_key)
 
     # Get default current_id (first poem's ID)
     # If no poems have IDs, we'll need to fall back to index-based system
@@ -557,12 +599,13 @@ def initialize_flashcard_session(poems: list[dict], user_id: str) -> dict:
         "filtered_ids": all_ids.copy(),
         "study_count": 0,
         "user_id": user_id,  # Store user_id in state
+        "corpus_key": corpus_key,
     }
 
     # Try to load saved progress for this user (only if not guest)
     saved_progress = None
     if user_id != "guest":
-        saved_progress = load_progress(user_id, poems)
+        saved_progress = load_progress(user_id, poems, corpus_key)
 
     if saved_progress:
         # Restore persistent data
@@ -627,7 +670,13 @@ def mark_as_known(flashcard_state: dict, save: bool = True) -> dict:
                 "total_known": len(flashcard_state.get("known_poems", set())),
                 "total_practice": len(flashcard_state.get("practice_poems", set())),
             }
-            log_change(user_id, "marked_known", current_id, metadata)
+            log_change(
+                user_id,
+                "marked_known",
+                current_id,
+                metadata,
+                flashcard_state.get("corpus_key", DEFAULT_CORPUS_KEY),
+            )
 
     if save:
         save_progress(flashcard_state)
@@ -664,7 +713,13 @@ def mark_for_practice(flashcard_state: dict, save: bool = True) -> dict:
                 "total_known": len(flashcard_state.get("known_poems", set())),
                 "total_practice": len(flashcard_state.get("practice_poems", set())),
             }
-            log_change(user_id, "marked_practice", current_id, metadata)
+            log_change(
+                user_id,
+                "marked_practice",
+                current_id,
+                metadata,
+                flashcard_state.get("corpus_key", DEFAULT_CORPUS_KEY),
+            )
 
     if save:
         save_progress(flashcard_state)
@@ -959,7 +1014,13 @@ def reset_progress(flashcard_state: dict) -> dict:
             "cleared_practice": practice_count,
             "total_cleared": known_count + practice_count,
         }
-        log_change(user_id, "reset_progress", None, metadata)
+        log_change(
+            user_id,
+            "reset_progress",
+            None,
+            metadata,
+            flashcard_state.get("corpus_key", DEFAULT_CORPUS_KEY),
+        )
 
     flashcard_state["known_poems"] = set()
     flashcard_state["practice_poems"] = set()

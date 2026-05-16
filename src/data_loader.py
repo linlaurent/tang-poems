@@ -1,25 +1,70 @@
-"""Data loading module for Tang poems."""
+"""Data loading module for classical poetry corpora."""
+
+from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 import requests
 import streamlit as st
 
-SUPPLEMENT_FILENAME = "poems_supplement.json"
+CORPUS_TANG_300 = "tang_300"
+CORPUS_SONG_CI = "song_ci"
+DEFAULT_CORPUS_KEY = CORPUS_TANG_300
+
+CORPORA = {
+    CORPUS_TANG_300: {
+        "display_name": "唐诗三百首",
+        "loading_label": "唐诗三百首",
+        "default_dynasty": "唐",
+        "supplement_filename": "poems_supplement.json",
+        "files": {
+            "simplified": "唐诗三百首.json",
+            "traditional": "唐诗三百首_繁体.json",
+        },
+        "fallback_file": "tang_poems.json",
+        "api_fallback": True,
+    },
+    CORPUS_SONG_CI: {
+        "display_name": "宋词",
+        "loading_label": "宋词",
+        "default_dynasty": "宋",
+        "supplement_filename": "song_ci_supplement.json",
+        "files": {
+            "simplified": "宋词.json",
+            "traditional": "宋词.json",
+        },
+        "fallback_file": None,
+        "api_fallback": False,
+    },
+}
 
 
 def project_data_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "data"
 
 
-def supplement_poems_path() -> Path:
-    return project_data_dir() / SUPPLEMENT_FILENAME
+def normalize_corpus_key(corpus_key: str | None = None) -> str:
+    if corpus_key in CORPORA:
+        return str(corpus_key)
+    return DEFAULT_CORPUS_KEY
 
 
-def load_supplement_poems() -> list[dict]:
-    path = supplement_poems_path()
+def get_corpus_display_name(corpus_key: str | None = None) -> str:
+    return str(CORPORA[normalize_corpus_key(corpus_key)]["display_name"])
+
+
+def get_corpus_default_dynasty(corpus_key: str | None = None) -> str:
+    return str(CORPORA[normalize_corpus_key(corpus_key)]["default_dynasty"])
+
+
+def supplement_poems_path(corpus_key: str | None = None) -> Path:
+    config = CORPORA[normalize_corpus_key(corpus_key)]
+    return project_data_dir() / str(config["supplement_filename"])
+
+
+def load_supplement_poems(corpus_key: str | None = None) -> list[dict]:
+    path = supplement_poems_path(corpus_key)
     if not path.exists():
         return []
     try:
@@ -30,8 +75,8 @@ def load_supplement_poems() -> list[dict]:
         return []
 
 
-def save_supplement_poems(poems: list[dict]) -> None:
-    path = supplement_poems_path()
+def save_supplement_poems(poems: list[dict], corpus_key: str | None = None) -> None:
+    path = supplement_poems_path(corpus_key)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
@@ -39,11 +84,13 @@ def save_supplement_poems(poems: list[dict]) -> None:
     tmp.replace(path)
 
 
-def append_supplement_poems(new_poems: list[dict]) -> int:
+def append_supplement_poems(
+    new_poems: list[dict], corpus_key: str | None = None
+) -> int:
     """Append poems to the supplement file (caller must dedupe). Returns count added."""
-    current = load_supplement_poems()
+    current = load_supplement_poems(corpus_key)
     current.extend(new_poems)
-    save_supplement_poems(current)
+    save_supplement_poems(current, corpus_key)
     return len(new_poems)
 
 
@@ -142,53 +189,62 @@ def get_fallback_poems() -> list[dict]:
     ]
 
 
-def transform_poem_format(poem: dict) -> dict:
+def transform_poem_format(poem: dict, default_dynasty: str = "唐") -> dict:
     """
     Transform poem from source format to application format.
-    Source format: {title, author, paragraphs: [str], tags, id}
+    Source format: {title/rhythmic, author, paragraphs/content, tags, id}
     Target format: {title, author, dynasty, content: str, translation, id}
     """
     paragraphs = poem.get("paragraphs", [])
-    content = "\n".join(paragraphs) if paragraphs else ""
+    if isinstance(poem.get("content"), str) and poem.get("content", "").strip():
+        content = poem["content"].replace("\r\n", "\n").strip()
+    elif isinstance(paragraphs, list):
+        content = "\n".join(str(line) for line in paragraphs if str(line).strip())
+    else:
+        content = ""
+
+    title = poem.get("title") or poem.get("rhythmic") or "无题"
+    dynasty = poem.get("dynasty") or default_dynasty
 
     result = {
-        "title": poem.get("title", "无题"),
+        "title": title,
         "author": poem.get("author", "未知"),
-        "dynasty": "唐",  # All poems in 唐诗三百首 are from Tang dynasty
+        "dynasty": dynasty,
         "content": content,
-        "translation": "",  # No translation in source data
+        "translation": poem.get("translation", ""),
     }
 
     # Preserve id field if it exists
     if "id" in poem:
         result["id"] = poem["id"]
+    if "rhythmic" in poem:
+        result["rhythmic"] = poem["rhythmic"]
 
     return result
 
 
-def load_poems_from_local(character_set: str = "simplified") -> Optional[list[dict]]:
+def load_poems_from_local(
+    character_set: str = "simplified", corpus_key: str | None = None
+) -> list[dict] | None:
     """
     Load poems from local JSON file if it exists.
-    Supports both 唐诗三百首.json and tang_poems.json formats.
+    Supports app-shaped JSON and source JSON with paragraphs.
 
     Args:
         character_set: "simplified" (default) or "traditional"
+        corpus_key: selected corpus key
     """
     try:
-        # Try to find the data file relative to the project root
-        current_file = Path(__file__)
-        project_root = current_file.parent.parent
-        data_dir = project_root / "data"
-
-        # Choose file based on character_set setting
-        if character_set == "traditional":
-            poems_file = data_dir / "唐诗三百首_繁体.json"
-        else:
-            poems_file = data_dir / "唐诗三百首.json"
+        data_dir = project_data_dir()
+        corpus_key = normalize_corpus_key(corpus_key)
+        config = CORPORA[corpus_key]
+        files = config["files"]
+        poems_file = data_dir / str(files.get(character_set) or files.get("simplified"))
 
         if not poems_file.exists():
-            # Fallback to tang_poems.json (old format)
-            poems_file = data_dir / "tang_poems.json"
+            fallback_file = config.get("fallback_file")
+            if fallback_file:
+                poems_file = data_dir / str(fallback_file)
 
         if poems_file.exists():
             with open(poems_file, encoding="utf-8") as f:
@@ -201,7 +257,11 @@ def load_poems_from_local(character_set: str = "simplified") -> Optional[list[di
                     # If it has 'paragraphs' field, it's the new format - transform it
                     if "paragraphs" in first_poem:
                         transformed_poems = [
-                            transform_poem_format(poem) for poem in poems_data
+                            transform_poem_format(
+                                poem,
+                                default_dynasty=str(config["default_dynasty"]),
+                            )
+                            for poem in poems_data
                         ]
                         return transformed_poems
                     # Otherwise, assume it's already in the correct format
@@ -219,28 +279,42 @@ def load_poems_from_local(character_set: str = "simplified") -> Optional[list[di
     return None
 
 
-def load_poems(character_set: str = "simplified") -> list[dict]:
+def load_poems(
+    character_set: str = "simplified", corpus_key: str | None = None
+) -> list[dict]:
     """
     Load poems with caching in session state.
     Prefers local file over API.
-    Reloads if character_set changes.
+    Reloads if character_set or corpus changes.
 
     Args:
         character_set: "simplified" (default) or "traditional"
+        corpus_key: selected corpus key
     """
-    # Reload if character set changed since last load
+    corpus_key = normalize_corpus_key(corpus_key)
+    config = CORPORA[corpus_key]
+
+    # Reload if character set or corpus changed since last load
     cached_charset = st.session_state.get("poems_character_set")
-    if "poems" not in st.session_state or cached_charset != character_set:
-        with st.spinner("正在加载唐诗数据..."):
+    cached_corpus = st.session_state.get("poems_corpus_key")
+    if (
+        "poems" not in st.session_state
+        or cached_charset != character_set
+        or cached_corpus != corpus_key
+    ):
+        with st.spinner(f"正在加载{config['loading_label']}数据..."):
             # Try local file first
-            local_poems = load_poems_from_local(character_set)
+            local_poems = load_poems_from_local(character_set, corpus_key)
             if local_poems:
                 base = local_poems
-            else:
+            elif config.get("api_fallback"):
                 base = fetch_poems_from_api()
-            supplement = load_supplement_poems()
+            else:
+                base = []
+            supplement = load_supplement_poems(corpus_key)
             st.session_state.poems = base + supplement
             st.session_state.poems_character_set = character_set
+            st.session_state.poems_corpus_key = corpus_key
 
     return st.session_state.poems
 
@@ -277,7 +351,7 @@ def search_poems(poems: list[dict], query: str) -> list[dict]:
     return results
 
 
-def get_poem_by_id(poems: list[dict], poem_id: str) -> Optional[dict]:
+def get_poem_by_id(poems: list[dict], poem_id: str) -> dict | None:
     """
     Get a specific poem by ID (string UUID).
     """
@@ -287,7 +361,7 @@ def get_poem_by_id(poems: list[dict], poem_id: str) -> Optional[dict]:
     return None
 
 
-def get_poem_index_by_id(poems: list[dict], poem_id: str) -> Optional[int]:
+def get_poem_index_by_id(poems: list[dict], poem_id: str) -> int | None:
     """
     Get the index of a poem by its ID.
     Returns None if not found.
@@ -298,7 +372,7 @@ def get_poem_index_by_id(poems: list[dict], poem_id: str) -> Optional[int]:
     return None
 
 
-def get_poem_id_by_index(poems: list[dict], index: int) -> Optional[str]:
+def get_poem_id_by_index(poems: list[dict], index: int) -> str | None:
     """
     Get the ID of a poem by its index.
     Returns None if index is out of range or poem has no ID.

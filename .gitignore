@@ -165,6 +165,7 @@ Thumbs.db
 # Uncomment if you don't want to track data files
 # data/*.json
 # data/*.txt
+data/宋词.json
 
 # Keep data directory structure but ignore large files if needed
 # data/*.csv

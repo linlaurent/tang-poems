@@ -6,7 +6,12 @@ import json
 import re
 from uuid import uuid4
 
-from src.data_loader import append_supplement_poems, search_poems
+from src.data_loader import (
+    DEFAULT_CORPUS_KEY,
+    append_supplement_poems,
+    get_corpus_default_dynasty,
+    search_poems,
+)
 from src.poem_corpus_lookup import resolve_poems_from_corpus
 from src.poem_explanations_store import upsert_explanation
 from src.zhipu_glm import DEFAULT_MODEL, chat_completion
@@ -323,7 +328,7 @@ def finalize_glm_poems_with_corpus(
     return out
 
 
-def _coerce_poem(obj: object) -> dict | None:
+def _coerce_poem(obj: object, default_dynasty: str | None = None) -> dict | None:
     if not isinstance(obj, dict):
         return None
     title = obj.get("title")
@@ -337,7 +342,7 @@ def _coerce_poem(obj: object) -> dict | None:
         return None
     dynasty = obj.get("dynasty")
     if not isinstance(dynasty, str) or not dynasty.strip():
-        dynasty = "唐"
+        dynasty = default_dynasty or "唐"
     content = content.replace("\r\n", "\n").strip()
     return {
         "title": title.strip(),
@@ -348,11 +353,13 @@ def _coerce_poem(obj: object) -> dict | None:
     }
 
 
-def parse_poems_from_glm_text(assistant_text: str) -> list[dict]:
+def parse_poems_from_glm_text(
+    assistant_text: str, default_dynasty: str | None = None
+) -> list[dict]:
     arr = _extract_json_array(assistant_text)
     out: list[dict] = []
     for item in arr:
-        p = _coerce_poem(item)
+        p = _coerce_poem(item, default_dynasty=default_dynasty)
         if p:
             out.append(p)
     return out
@@ -433,6 +440,7 @@ def preview_poems_from_web_query(
     user_query: str,
     *,
     corpus: list[dict] | None = None,
+    corpus_key: str | None = None,
 ) -> tuple[list[dict], str | None, str | None]:
     """Try local corpus first; else GLM + parse + finalize."""
     if corpus:
@@ -446,7 +454,12 @@ def preview_poems_from_web_query(
     except Exception as e:
         return [], f"模型请求失败：{e}", None
     try:
-        poems = parse_poems_from_glm_text(raw)
+        poems = parse_poems_from_glm_text(
+            raw,
+            default_dynasty=get_corpus_default_dynasty(
+                corpus_key or DEFAULT_CORPUS_KEY
+            ),
+        )
     except (json.JSONDecodeError, ValueError) as e:
         return [], f"无法解析模型返回的 JSON：{e}", None
     poems = finalize_glm_poems_with_corpus(poems, corpus)
@@ -457,6 +470,7 @@ def commit_poems_to_supplement(
     candidates: list[dict],
     corpus: list[dict],
     *,
+    corpus_key: str | None = None,
     explanations_by_poem_id: dict[str, str] | None = None,
     explanation_web_search: bool = False,
 ) -> tuple[int, str | None, list[dict]]:
@@ -482,7 +496,7 @@ def commit_poems_to_supplement(
     if not to_add:
         return 0, None, []
 
-    append_supplement_poems(to_add)
+    append_supplement_poems(to_add, corpus_key)
 
     expl = explanations_by_poem_id or {}
     if expl:
@@ -505,6 +519,8 @@ def commit_poems_to_supplement(
 def supplement_poems_from_web_query(
     user_query: str,
     corpus: list[dict],
+    *,
+    corpus_key: str | None = None,
 ) -> tuple[int, str | None]:
     """
     One-shot: preview all GLM results then commit every poem not already in corpus.
@@ -512,6 +528,7 @@ def supplement_poems_from_web_query(
     poems, err, _ = preview_poems_from_web_query(
         user_query,
         corpus=corpus,
+        corpus_key=corpus_key,
     )
     if err:
         return 0, err
@@ -521,6 +538,7 @@ def supplement_poems_from_web_query(
     n, err2, _ = commit_poems_to_supplement(
         poems,
         corpus,
+        corpus_key=corpus_key,
         explanations_by_poem_id=explanations or None,
         explanation_web_search=True,
     )
