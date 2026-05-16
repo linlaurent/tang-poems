@@ -301,11 +301,65 @@ html, body {
     color: #666;
     margin-bottom: 2px;
 }
+/* Single-character stroke animation preview */
+.stroke-anim-section {
+    margin-bottom: 14px;
+    text-align: center;
+}
+.stroke-anim-controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+.stroke-anim-controls button {
+    padding: 6px 16px;
+    font-size: 0.95rem;
+    background: #4CAF50;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.stroke-anim-controls button:hover:not(:disabled) { background: #388E3C; }
+.stroke-anim-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.stroke-anim-controls .stroke-secondary-btn {
+    background: #90a4ae;
+}
+.stroke-anim-controls .stroke-secondary-btn:hover:not(:disabled) {
+    background: #78909c;
+}
+#strokeAnimHost svg {
+    max-width: 100%;
+}
+.stroke-steps-details {
+    margin-top: 4px;
+    border-radius: 8px;
+    border: 1px solid #eee;
+    padding: 8px 10px;
+    background: #fafafa;
+}
+.stroke-steps-details > summary {
+    cursor: pointer;
+    font-size: 0.95rem;
+    color: #555;
+    user-select: none;
+}
+.stroke-steps-details[open] > summary {
+    margin-bottom: 10px;
+}
 """
 
 _JS = """\
 (function() {
   var STROKE_DATA = __STROKE_JSON__;
+  var ANIM_NS = 'http://www.w3.org/2000/svg';
 
   var overlay = document.getElementById('strokeModalOverlay');
   var modal   = document.getElementById('strokeModal');
@@ -313,6 +367,17 @@ _JS = """\
   var poemWidget  = document.querySelector('.poem-widget');
   var hintLine    = document.querySelector('.hint-line');
   var showAllBtn  = document.getElementById('showAllStrokesBtn');
+
+  var strokeAnimSection = document.getElementById('strokeAnimSection');
+  var strokeAnimHost    = document.getElementById('strokeAnimHost');
+  var strokeStepsDetails = document.getElementById('strokeStepsDetails');
+  var strokePlayBtn     = document.getElementById('strokePlayBtn');
+  var strokeReplayBtn   = document.getElementById('strokeReplayBtn');
+
+  var playbackGen = 0;
+  var animPathsScratch = []; /* reused while modal open */
+
+  function invalidatePlayback() { playbackGen++; }
 
   /* Expand iframe to cover parent viewport so modal is page-centered */
   function expandFrame() {
@@ -346,8 +411,12 @@ _JS = """\
 
   /* Close helpers */
   function closeModal() {
+    invalidatePlayback();
     overlay.classList.remove('open');
     restoreFrame();
+    if (strokePlayBtn) strokePlayBtn.disabled = false;
+    if (strokeReplayBtn) strokeReplayBtn.disabled = false;
+    if (strokeStepsDetails) strokeStepsDetails.open = false;
   }
   overlay.addEventListener('click', function(e) {
     if (e.target === overlay) closeModal();
@@ -377,10 +446,157 @@ _JS = """\
          + paths + '</g></svg>';
   }
 
+  function mountAnimSvg(strokes) {
+    strokeAnimHost.innerHTML = '';
+    var svg = document.createElementNS(ANIM_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 1000 1000');
+    svg.setAttribute('width', '250');
+    svg.setAttribute('height', '250');
+    svg.style.background = '#fff';
+    svg.style.border = '1px solid #ddd';
+    svg.style.borderRadius = '8px';
+    svg.style.display = 'block';
+    svg.style.margin = '0 auto';
+
+    var g = document.createElementNS(ANIM_NS, 'g');
+    g.setAttribute('transform',
+      'rotate(180,500,500) translate(1000,0) scale(-1,1)');
+
+    animPathsScratch = [];
+    for (var i = 0; i < strokes.length; i++) {
+      var pp = document.createElementNS(ANIM_NS, 'path');
+      pp.setAttribute('d', strokes[i]);
+      pp.setAttribute('fill', 'none');
+      pp.setAttribute('stroke-linecap', 'round');
+      pp.setAttribute('stroke-linejoin', 'round');
+      pp.style.opacity = '0';
+      pp.style.transition = 'none';
+      pp.style.strokeDasharray = '';
+      pp.style.strokeDashoffset = '';
+      g.appendChild(pp);
+      animPathsScratch.push(pp);
+    }
+
+    svg.appendChild(g);
+    strokeAnimHost.appendChild(svg);
+    return animPathsScratch;
+  }
+
+  function finalizePathGrey(p) {
+    p.style.transition = 'none';
+    p.style.strokeDasharray = '';
+    p.style.strokeDashoffset = '';
+    p.setAttribute('stroke', '#888888');
+    p.setAttribute('stroke-width', '2');
+    p.style.opacity = '1';
+  }
+
+  /* Fade-in each new stroke (full outline); avoids misleading dash-draw direction */
+  var STROKE_APPEAR_MS = 520;
+
+  /* Step through *paths*: highlight stroke i with fade-in, then gray out. */
+  function runStrokeSequence(paths, token) {
+    if (token !== playbackGen) return;
+
+    if (strokePlayBtn) strokePlayBtn.disabled = true;
+    if (strokeReplayBtn) strokeReplayBtn.disabled = true;
+
+    var i = 0;
+    function step() {
+      if (token !== playbackGen) return;
+      if (i >= paths.length) {
+        if (strokePlayBtn) strokePlayBtn.disabled = false;
+        if (strokeReplayBtn) strokeReplayBtn.disabled = false;
+        return;
+      }
+
+      var j = 0;
+      for (; j < i; j++) {
+        finalizePathGrey(paths[j]);
+      }
+      for (j = i + 1; j < paths.length; j++) {
+        paths[j].style.transition = 'none';
+        paths[j].style.opacity = '0';
+        paths[j].removeAttribute('stroke');
+        paths[j].removeAttribute('stroke-width');
+      }
+
+      var p = paths[i];
+      p.style.transition = 'none';
+      p.setAttribute('stroke', '#000000');
+      p.setAttribute('stroke-width', '3');
+      p.style.opacity = '0';
+
+      requestAnimationFrame(function() {
+        if (token !== playbackGen) return;
+        var fired = false;
+        function advance() {
+          if (fired) return;
+          if (token !== playbackGen) return;
+          fired = true;
+          p.removeEventListener('transitionend', onTe);
+          clearTimeout(fallbackTm);
+          finalizePathGrey(p);
+          i++;
+          step();
+        }
+        function onTe(e) {
+          if (e.propertyName !== 'opacity') return;
+          advance();
+        }
+        var fallbackTm = setTimeout(advance, STROKE_APPEAR_MS + 120);
+        p.addEventListener('transitionend', onTe);
+        p.style.transition =
+          'opacity ' + STROKE_APPEAR_MS + 'ms ease-out';
+        p.style.opacity = '1';
+      });
+    }
+
+    step();
+  }
+
+  function startStrokePlayback() {
+    if (!animPathsScratch || !animPathsScratch.length) return;
+    playbackGen++;
+    var token = playbackGen;
+
+    /* Reset visuals; clone paths to drop stale transitionend listeners */
+    var paths = animPathsScratch;
+    for (var u = 0; u < paths.length; u++) {
+      var pn = paths[u];
+      pn.style.transition = 'none';
+      pn.style.strokeDasharray = '';
+      pn.style.strokeDashoffset = '';
+      pn.removeAttribute('stroke');
+      pn.removeAttribute('stroke-width');
+      pn.style.opacity = '0';
+
+      var fresh = pn.cloneNode(true);
+      pn.parentNode.replaceChild(fresh, pn);
+      paths[u] = fresh;
+      animPathsScratch[u] = fresh;
+    }
+
+    runStrokeSequence(paths, token);
+  }
+
+  strokePlayBtn.addEventListener('click', function() {
+    startStrokePlayback();
+  });
+  strokeReplayBtn.addEventListener('click', function() {
+    startStrokePlayback();
+  });
+
   /* Helper: populate modal for a single character */
   function showSingleChar(ch) {
     var strokes = STROKE_DATA[ch];
     if (!strokes) return;
+
+    if (strokeAnimSection) strokeAnimSection.style.display = '';
+    invalidatePlayback();
+
+    mountAnimSvg(strokes);
+    if (strokeStepsDetails) strokeStepsDetails.removeAttribute('open');
 
     document.getElementById('strokeModalTitle').textContent = ch;
     document.getElementById('strokeModalSubtitle').textContent =
@@ -406,6 +622,7 @@ _JS = """\
     }
     expandFrame();
     overlay.classList.add('open');
+    /* Playback starts on user gesture (avoid surprising autoplay noise) */
   }
 
   /* Double-click handler */
@@ -426,6 +643,9 @@ _JS = """\
       if (!seen[ch] && STROKE_DATA[ch]) { seen[ch] = true; chars.push(ch); }
     });
     if (!chars.length) return;
+
+    if (strokeAnimSection) strokeAnimSection.style.display = 'none';
+    invalidatePlayback();
 
     document.getElementById('strokeModalTitle').textContent = '全部笔顺';
     document.getElementById('strokeModalSubtitle').textContent =
@@ -464,6 +684,8 @@ _JS = """\
       section.appendChild(subgrid);
       grid.appendChild(section);
     }
+
+    if (strokeStepsDetails) strokeStepsDetails.open = true;
 
     expandFrame();
     overlay.classList.add('open');
@@ -514,7 +736,18 @@ def render_poem_with_strokes(content: str) -> str:
     <button class="stroke-modal-close" id="strokeModalClose">&times;</button>
     <h2 id="strokeModalTitle"></h2>
     <div class="subtitle" id="strokeModalSubtitle"></div>
-    <div class="stroke-grid" id="strokeGrid"></div>
+    <div id="strokeAnimSection" class="stroke-anim-section">
+      <div class="stroke-anim-controls">
+        <button type="button" id="strokePlayBtn">播放笔顺</button>
+        <button type="button" class="stroke-secondary-btn"
+                id="strokeReplayBtn">重播</button>
+      </div>
+      <div id="strokeAnimHost"></div>
+    </div>
+    <details id="strokeStepsDetails" class="stroke-steps-details">
+      <summary>分步图示</summary>
+      <div class="stroke-grid" id="strokeGrid"></div>
+    </details>
   </div>
 </div>
 
