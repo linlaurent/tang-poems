@@ -376,8 +376,27 @@ _JS = """\
 
   var playbackGen = 0;
   var animPathsScratch = []; /* reused while modal open */
+  var poemPlaybackActive = false;
+  var poemBetweenTimer = null;
+
+  function clearPoemBetweenTimer() {
+    if (poemBetweenTimer) {
+      clearTimeout(poemBetweenTimer);
+      poemBetweenTimer = null;
+    }
+  }
 
   function invalidatePlayback() { playbackGen++; }
+
+  function unlockStrokeControls() {
+    if (strokePlayBtn) strokePlayBtn.disabled = false;
+    if (strokeReplayBtn) strokeReplayBtn.disabled = false;
+  }
+
+  function lockStrokeControls() {
+    if (strokePlayBtn) strokePlayBtn.disabled = true;
+    if (strokeReplayBtn) strokeReplayBtn.disabled = true;
+  }
 
   /* Expand iframe to cover parent viewport so modal is page-centered */
   function expandFrame() {
@@ -412,10 +431,11 @@ _JS = """\
   /* Close helpers */
   function closeModal() {
     invalidatePlayback();
+    poemPlaybackActive = false;
+    clearPoemBetweenTimer();
     overlay.classList.remove('open');
     restoreFrame();
-    if (strokePlayBtn) strokePlayBtn.disabled = false;
-    if (strokeReplayBtn) strokeReplayBtn.disabled = false;
+    unlockStrokeControls();
     if (strokeStepsDetails) strokeStepsDetails.open = false;
   }
   overlay.addEventListener('click', function(e) {
@@ -493,20 +513,28 @@ _JS = """\
 
   /* Fade-in each new stroke (full outline); avoids misleading dash-draw direction */
   var STROKE_APPEAR_MS = 520;
+  var BETWEEN_POEM_CHARS_MS = 380;
 
   /* Step through *paths*: highlight stroke i with fade-in, then gray out. */
-  function runStrokeSequence(paths, token) {
+  function runStrokeSequence(paths, token, opts) {
+    opts = opts || {};
+    var unlockButtonsAtEnd = opts.unlockButtons !== false;
+    var onSequenceDone = opts.onDone;
+
     if (token !== playbackGen) return;
 
-    if (strokePlayBtn) strokePlayBtn.disabled = true;
-    if (strokeReplayBtn) strokeReplayBtn.disabled = true;
+    lockStrokeControls();
 
     var i = 0;
     function step() {
       if (token !== playbackGen) return;
       if (i >= paths.length) {
-        if (strokePlayBtn) strokePlayBtn.disabled = false;
-        if (strokeReplayBtn) strokeReplayBtn.disabled = false;
+        if (unlockButtonsAtEnd) {
+          unlockStrokeControls();
+        }
+        if (typeof onSequenceDone === 'function') {
+          onSequenceDone();
+        }
         return;
       }
 
@@ -555,13 +583,7 @@ _JS = """\
     step();
   }
 
-  function startStrokePlayback() {
-    if (!animPathsScratch || !animPathsScratch.length) return;
-    playbackGen++;
-    var token = playbackGen;
-
-    /* Reset visuals; clone paths to drop stale transitionend listeners */
-    var paths = animPathsScratch;
+  function preparePathsForFreshPlayback(paths) {
     for (var u = 0; u < paths.length; u++) {
       var pn = paths[u];
       pn.style.transition = 'none';
@@ -576,21 +598,103 @@ _JS = """\
       paths[u] = fresh;
       animPathsScratch[u] = fresh;
     }
+  }
 
-    runStrokeSequence(paths, token);
+  function startStrokePlayback() {
+    if (!animPathsScratch || !animPathsScratch.length) return;
+    playbackGen++;
+    var token = playbackGen;
+
+    preparePathsForFreshPlayback(animPathsScratch);
+
+    runStrokeSequence(animPathsScratch, token);
   }
 
   strokePlayBtn.addEventListener('click', function() {
+    poemPlaybackActive = false;
+    clearPoemBetweenTimer();
     startStrokePlayback();
   });
   strokeReplayBtn.addEventListener('click', function() {
+    poemPlaybackActive = false;
+    clearPoemBetweenTimer();
     startStrokePlayback();
   });
+
+  /* Full poem: chars in poem order (including repeats), stroke-by-stroke per char */
+  function collectPoemStrokeCharsInOrder() {
+    var chars = [];
+    document.querySelectorAll('.stroke-char').forEach(function(span) {
+      var ch = span.getAttribute('data-char');
+      if (STROKE_DATA[ch]) {
+        chars.push(ch);
+      }
+    });
+    return chars;
+  }
+
+  function runPoemStrokePlayback(chars) {
+    if (!chars.length) {
+      return;
+    }
+
+    invalidatePlayback();
+    poemPlaybackActive = true;
+    clearPoemBetweenTimer();
+
+    if (strokeAnimSection) strokeAnimSection.style.display = '';
+
+    lockStrokeControls();
+
+    function playCharAt(idx) {
+      if (!poemPlaybackActive) {
+        unlockStrokeControls();
+        return;
+      }
+      if (idx >= chars.length) {
+        poemPlaybackActive = false;
+        unlockStrokeControls();
+        document.getElementById('strokeModalSubtitle').textContent =
+          '播放完毕 · 本诗 ' + chars.length + ' 字（含重复）';
+        return;
+      }
+
+      var ch = chars[idx];
+      var strokes = STROKE_DATA[ch];
+      mountAnimSvg(strokes);
+
+      document.getElementById('strokeModalSubtitle').textContent =
+        '第 ' + (idx + 1) + '/' + chars.length + ' 字 · '
+        + ch + ' · ' + strokes.length + ' 画';
+
+      playbackGen++;
+      var charTok = playbackGen;
+      preparePathsForFreshPlayback(animPathsScratch);
+
+      runStrokeSequence(animPathsScratch, charTok, {
+        unlockButtons: false,
+        onDone: function() {
+          if (!poemPlaybackActive || charTok !== playbackGen) {
+            return;
+          }
+          poemBetweenTimer = setTimeout(function() {
+            poemBetweenTimer = null;
+            playCharAt(idx + 1);
+          }, BETWEEN_POEM_CHARS_MS);
+        }
+      });
+    }
+
+    playCharAt(0);
+  }
 
   /* Helper: populate modal for a single character */
   function showSingleChar(ch) {
     var strokes = STROKE_DATA[ch];
     if (!strokes) return;
+
+    poemPlaybackActive = false;
+    clearPoemBetweenTimer();
 
     if (strokeAnimSection) strokeAnimSection.style.display = '';
     invalidatePlayback();
@@ -633,7 +737,7 @@ _JS = """\
     });
   });
 
-  /* "Show All Strokes" button */
+  /* "Show All Strokes": thumbnail grid + full-poem stroke playback */
   document.getElementById('showAllStrokesBtn').addEventListener('click', function() {
     /* Collect unique CJK chars in document order */
     var chars = [];
@@ -644,7 +748,12 @@ _JS = """\
     });
     if (!chars.length) return;
 
-    if (strokeAnimSection) strokeAnimSection.style.display = 'none';
+    var charsPoemOrder = collectPoemStrokeCharsInOrder();
+
+    poemPlaybackActive = false;
+    clearPoemBetweenTimer();
+
+    if (strokeAnimSection) strokeAnimSection.style.display = '';
     invalidatePlayback();
 
     document.getElementById('strokeModalTitle').textContent = '全部笔顺';
@@ -690,6 +799,10 @@ _JS = """\
     expandFrame();
     overlay.classList.add('open');
 
+    if (charsPoemOrder.length) {
+      runPoemStrokePlayback(charsPoemOrder);
+    }
+
     /* Restore grid display on close so single-char view works again */
     var origClose = closeModal;
     closeModal = function() {
@@ -709,8 +822,11 @@ def render_poem_with_strokes(content: str) -> str:
     """Return a self-contained HTML string for displaying *content*.
 
     Each CJK character is interactive: double-click opens a modal showing
-    progressive stroke order (if data is available).  Pinyin annotations
-    (including all heteronym readings) are shown above each character.
+    progressive stroke order (if data is available). 「全部笔顺」lists each
+    distinct character’s steps and plays strokes through the poem in reading
+    order (including repeats).
+    Pinyin annotations (including all heteronym readings) are shown above each
+    character.
     """
     stroke_data = _collect_stroke_data(content)
     pinyin_data = _collect_pinyin_data(content)
