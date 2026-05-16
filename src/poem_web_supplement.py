@@ -225,7 +225,7 @@ _RESOLVE_TITLE_RULES = (
 )
 
 
-def _fetch_title_author_resolution_raw(poem: dict, *, use_web_search: bool) -> str:
+def _fetch_title_author_resolution_raw(poem: dict) -> str:
     content = str(poem.get("content") or "").strip()
     hint_title = str(poem.get("title") or "").strip()
     hint_author = str(poem.get("author") or "").strip()
@@ -241,27 +241,25 @@ def _fetch_title_author_resolution_raw(poem: dict, *, use_web_search: bool) -> s
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
-    return chat_completion(messages, web_search=use_web_search)
+    return chat_completion(messages, web_search=True)
 
 
 def resolve_poem_title_author_via_zhipu(
-    poem: dict, *, use_web_search: bool = True
+    poem: dict,
 ) -> tuple[str | None, str | None]:
     """Second-pass GLM: canonical title and author from body. None = keep prior."""
     try:
-        raw = _fetch_title_author_resolution_raw(poem, use_web_search=use_web_search)
+        raw = _fetch_title_author_resolution_raw(poem)
     except Exception:
         return None, None
     return _parse_zhipu_title_author_response(raw)
 
 
-def apply_zhipu_resolved_titles(
-    poems: list[dict], *, use_web_search: bool = True
-) -> list[dict]:
+def apply_zhipu_resolved_titles(poems: list[dict]) -> list[dict]:
     """Overwrite title/author when Zhipu returns non-empty strings."""
     out: list[dict] = []
     for p in poems:
-        nt, na = resolve_poem_title_author_via_zhipu(p, use_web_search=use_web_search)
+        nt, na = resolve_poem_title_author_via_zhipu(p)
         q = dict(p)
         if nt:
             q["title"] = nt
@@ -303,8 +301,6 @@ def try_apply_corpus_title_author_unique_line(
 def finalize_glm_poems_with_corpus(
     poems: list[dict],
     corpus: list[dict] | None,
-    *,
-    use_web_search: bool = True,
 ) -> list[dict]:
     """
     Prefer local corpus when the first line uniquely identifies one poem;
@@ -317,7 +313,7 @@ def finalize_glm_poems_with_corpus(
             if applied:
                 out.append(p2)
                 continue
-        nt, na = resolve_poem_title_author_via_zhipu(p, use_web_search=use_web_search)
+        nt, na = resolve_poem_title_author_via_zhipu(p)
         q = dict(p)
         if nt:
             q["title"] = nt
@@ -370,32 +366,23 @@ _JSON_OUTPUT_RULES = (
 )
 
 
-def fetch_poems_via_glm_web_search(
-    user_query: str, *, use_web_search: bool = True
-) -> str:
-    if use_web_search:
-        system = "你是诗词助手，用联网检索帮用户查诗。" + _JSON_OUTPUT_RULES
-        user = user_query
-    else:
-        system = (
-            "你是诗词助手；当前未联网，拿不准就输出 []，不要猜。" + _JSON_OUTPUT_RULES
-        )
-        user = user_query
+def fetch_poems_via_glm_web_search(user_query: str) -> str:
+    system = "你是诗词助手，用联网检索帮用户查诗。" + _JSON_OUTPUT_RULES
+    user = user_query
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
-    return chat_completion(messages, web_search=use_web_search)
+    return chat_completion(messages, web_search=True)
 
 
 def fetch_poem_meaning_explanation(
     poem: dict,
     *,
-    use_web_search: bool = True,
     timing: bool = True,
 ) -> str:
     """
-    Ask GLM for 释义/赏析 of a single poem. Uses Zhipu web_search when enabled.
+    Ask GLM for 释义/赏析 of a single poem using Zhipu web_search.
     Raises ValueError if ZHIPU_API_KEY is missing (from chat_completion).
 
     ``timing``: when False, suppress per-request elapsed-time logs on stderr
@@ -405,35 +392,28 @@ def fetch_poem_meaning_explanation(
     author = str(poem.get("author") or "").strip() or "未知"
     dynasty = str(poem.get("dynasty") or "").strip()
     content = str(poem.get("content") or "").strip()
-    if use_web_search:
-        system = (
-            "你是古典诗词助手。请结合联网检索到的可靠资料，对给定诗作进行通俗释义与简要赏析"
-            "（可含创作背景、意象与情感）。条理清晰，分段或分点均可；"
-            "不要编造与权威出处明显冲突的诗题、作者或正文。"
-        )
-    else:
-        system = (
-            "你是古典诗词助手。当前未联网，请仅依据你掌握的知识作答；"
-            "对不确定处请明确说明。对给定诗作进行通俗释义与简要赏析。"
-        )
+    system = (
+        "你是古典诗词助手。请结合联网检索到的可靠资料，对给定诗作进行通俗释义与简要赏析"
+        "（可含创作背景、意象与情感）。条理清晰，分段或分点均可；"
+        "不要编造与权威出处明显冲突的诗题、作者或正文。"
+    )
     dyn_line = f"朝代：{dynasty}\n" if dynasty else ""
     user = f"诗题：{title}\n作者：{author}\n{dyn_line}正文：\n{content}"
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
-    return chat_completion(messages, web_search=use_web_search, timing=timing)
+    return chat_completion(messages, web_search=True, timing=timing)
 
 
 def gather_explanations_for_poems(
     poems: list[dict],
     *,
-    use_web_search: bool,
     timing: bool = False,
 ) -> dict[str, str]:
     """
-    Fetch 释义 per poem (same web_search behavior as retrieval). Missing ``id``
-    rows are skipped; per-poem API failures are swallowed (omit that id).
+    Fetch 释义 per poem via web_search. Missing ``id`` rows are skipped;
+    per-poem API failures are swallowed (omit that id).
     """
     out: dict[str, str] = {}
     for p in poems:
@@ -441,9 +421,7 @@ def gather_explanations_for_poems(
         if not pid:
             continue
         try:
-            text = fetch_poem_meaning_explanation(
-                p, use_web_search=use_web_search, timing=timing
-            ).strip()
+            text = fetch_poem_meaning_explanation(p, timing=timing).strip()
         except Exception:
             continue
         if text:
@@ -454,7 +432,6 @@ def gather_explanations_for_poems(
 def preview_poems_from_web_query(
     user_query: str,
     *,
-    use_web_search: bool = True,
     corpus: list[dict] | None = None,
 ) -> tuple[list[dict], str | None, str | None]:
     """Try local corpus first; else GLM + parse + finalize."""
@@ -463,7 +440,7 @@ def preview_poems_from_web_query(
         if cand:
             return cand, None, tag
     try:
-        raw = fetch_poems_via_glm_web_search(user_query, use_web_search=use_web_search)
+        raw = fetch_poems_via_glm_web_search(user_query)
     except ValueError as e:
         return [], str(e), None
     except Exception as e:
@@ -472,7 +449,7 @@ def preview_poems_from_web_query(
         poems = parse_poems_from_glm_text(raw)
     except (json.JSONDecodeError, ValueError) as e:
         return [], f"无法解析模型返回的 JSON：{e}", None
-    poems = finalize_glm_poems_with_corpus(poems, corpus, use_web_search=use_web_search)
+    poems = finalize_glm_poems_with_corpus(poems, corpus)
     return poems, None, None
 
 
@@ -528,29 +505,24 @@ def commit_poems_to_supplement(
 def supplement_poems_from_web_query(
     user_query: str,
     corpus: list[dict],
-    *,
-    use_web_search: bool = True,
 ) -> tuple[int, str | None]:
     """
     One-shot: preview all GLM results then commit every poem not already in corpus.
     """
     poems, err, _ = preview_poems_from_web_query(
         user_query,
-        use_web_search=use_web_search,
         corpus=corpus,
     )
     if err:
         return 0, err
     if not poems:
         return 0, None
-    explanations = gather_explanations_for_poems(
-        poems, use_web_search=use_web_search, timing=False
-    )
+    explanations = gather_explanations_for_poems(poems, timing=False)
     n, err2, _ = commit_poems_to_supplement(
         poems,
         corpus,
         explanations_by_poem_id=explanations or None,
-        explanation_web_search=use_web_search,
+        explanation_web_search=True,
     )
     if err2:
         return 0, err2

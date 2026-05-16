@@ -190,11 +190,6 @@ def _get_character_set() -> str:
     return st.session_state.get("character_set", "simplified")
 
 
-def _glm_use_web_search() -> bool:
-    """True if sidebar enables Zhipu web_search tool for poem GLM calls."""
-    return bool(st.session_state.get("glm_poem_web_search", True))
-
-
 def _web_multiselect_label_index(label: str) -> int:
     if not label.startswith("["):
         raise ValueError("invalid label")
@@ -214,16 +209,13 @@ def render_web_poem_preview_block(
         return
 
     plist: list[dict] = preview.get("poems") or []
-    used_web = preview.get("use_web_search", True)
     corpus_tag = preview.get("corpus_tag")
     if corpus_tag is not None:
         st.subheader("本地诗库匹配")
         if corpus_tag == "ambiguous":
             st.warning("本地诗库中有多首可能匹配，请从下方选择要加入扩展库的诗作。")
     else:
-        st.subheader("联网检索结果" if used_web else "模型检索结果")
-        if not used_web:
-            st.warning("当前未启用联网：结果为纯模型输出，请自行核对，勿轻信。")
+        st.subheader("联网检索结果")
     if not plist:
         st.warning("模型未返回诗作（空结果）。")
         if st.button("清除预览", key=f"{preview_state_key}_clear_empty"):
@@ -295,7 +287,7 @@ def render_web_poem_preview_block(
                 explanations_by_poem_id=preview.get("explanations")
                 if isinstance(preview.get("explanations"), dict)
                 else None,
-                explanation_web_search=bool(preview.get("use_web_search", True)),
+                explanation_web_search=True,
             )
             if err:
                 st.error(err)
@@ -634,15 +626,11 @@ def flashcard_mode():
             st.session_state.pop(preview_key_fc, None)
 
         api_ok_fc = bool(os.environ.get(ZHIPU_API_KEY_ENV))
-        use_web_fc = _glm_use_web_search()
         with fc_web_col:
             st.write("")
-            fc_btn_help = (
-                "使用智谱 GLM 检索诗词（需 ZHIPU_API_KEY）。"
-                "侧边栏可关闭「联网」以仅用模型。"
-            )
+            fc_btn_help = "使用智谱 GLM 联网检索诗词（需 ZHIPU_API_KEY）。"
             if st.button(
-                "联网搜索" if use_web_fc else "模型检索",
+                "联网搜索",
                 disabled=not q_fc,
                 key="flashcard_web_glm_btn",
                 help=fc_btn_help,
@@ -650,7 +638,6 @@ def flashcard_mode():
                 with st.spinner("正在检索…"):
                     plist_fc, err_fc, corpus_tag_fc = preview_poems_from_web_query(
                         q_fc,
-                        use_web_search=use_web_fc,
                         corpus=poems,
                     )
                 if err_fc:
@@ -662,7 +649,6 @@ def flashcard_mode():
                         with st.spinner("正在检索释义…"):
                             explanations_map = gather_explanations_for_poems(
                                 plist_fc,
-                                use_web_search=use_web_fc,
                                 timing=False,
                             )
                     elif plist_fc:
@@ -671,7 +657,6 @@ def flashcard_mode():
                     st.session_state[preview_key_fc] = {
                         "query": q_fc,
                         "poems": plist_fc,
-                        "use_web_search": use_web_fc,
                         "corpus_tag": corpus_tag_fc,
                         "explanations": explanations_map,
                         "explanations_skipped": explanations_skipped,
@@ -932,32 +917,24 @@ def flashcard_mode():
                 _disk_expl = get_explanation(_cid)
                 if _disk_expl is not None:
                     _fc_meaning_cache[_cid] = _disk_expl
-            _use_web_meaning = _glm_use_web_search()
-            _meaning_btn_label = "联网查释义" if _use_web_meaning else "模型释义"
             _meaning_api_ok = bool(os.environ.get(ZHIPU_API_KEY_ENV))
             _mcol1, _mcol2 = st.columns(2)
             with _mcol1:
                 if st.button(
-                    _meaning_btn_label,
+                    "联网查释义",
                     width="stretch",
                     disabled=not _meaning_api_ok or not _cid,
                     key="flashcard_meaning_fetch_btn",
-                    help=(
-                        "使用智谱 GLM 查询本诗释义（需 ZHIPU_API_KEY）。"
-                        "侧边栏可关闭「联网」以仅用模型。"
-                    ),
+                    help="使用智谱 GLM 联网查询本诗释义（需 ZHIPU_API_KEY）。",
                 ):
                     with st.spinner("正在查询释义…"):
                         try:
-                            _txt = fetch_poem_meaning_explanation(
-                                current_poem,
-                                use_web_search=_use_web_meaning,
-                            )
+                            _txt = fetch_poem_meaning_explanation(current_poem)
                             _fc_meaning_cache[_cid] = _txt
                             upsert_explanation(
                                 _cid,
                                 _txt,
-                                web_search=_use_web_meaning,
+                                web_search=True,
                                 model=DEFAULT_MODEL,
                             )
                             _meaning_skip_disk.discard(_cid)
@@ -1537,13 +1514,6 @@ def main():
             format_func=lambda x: "简体中文" if x == "simplified" else "繁體中文",
             index=0,
             key="character_set",
-        )
-        st.toggle(
-            "诗词检索启用联网",
-            value=True,
-            key="glm_poem_web_search",
-            help="开启时「联网搜索/模型检索」会调用智谱联网工具；"
-            "关闭则仅聊天模型、无实时网页依据，易出错，请谨慎核对。",
         )
 
     # Handle mode switching from analytics

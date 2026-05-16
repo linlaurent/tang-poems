@@ -124,9 +124,9 @@ poems/
 
 ### 智谱释义与批量抓取（可选）
 
-需设置环境变量 **`ZHIPU_API_KEY`**。应用内联网检索诗稿后也会尝试并为待加入诗作抓取释义。
+需设置环境变量 **`ZHIPU_API_KEY`**。应用内诗词检索和释义查询始终使用联网检索；检索到待加入诗作后，也会尝试为其抓取释义。
 
-在代码中批量为多首诗请求释义可使用 **`gather_explanations_for_poems`**（定义于 [`src/poem_web_supplement.py`](src/poem_web_supplement.py)）：入参为诗字典列表（需含可用的 **`id`** 与正文等字段）、`use_web_search`（是否与联网释义一致）、`timing`（是否打印单次请求耗时到 stderr）；返回值为 **`Dict[诗 id, 释义正文]`**，无 `id` 或单次请求失败的条目会被跳过。
+在代码中批量为多首诗请求释义可使用 **`gather_explanations_for_poems`**（定义于 [`src/poem_web_supplement.py`](src/poem_web_supplement.py)）：入参为诗字典列表（需含可用的 **`id`** 与正文等字段）和 `timing`（是否打印单次请求耗时到 stderr）；返回值为 **`Dict[诗 id, 释义正文]`**，无 `id` 或单次请求失败的条目会被跳过。
 
 命令行可对本地合并后的诗库批量写入 `data/poem_explanations.json`：
 

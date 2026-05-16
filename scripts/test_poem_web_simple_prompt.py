@@ -1,4 +1,4 @@
-"""Exercise simplified poem GLM prompt + JSON parse (web_search on by default).
+"""Exercise simplified poem GLM prompt + JSON parse with web_search.
 
 Run from project root:
 
@@ -45,13 +45,7 @@ def main() -> None:
         default=None,
         help="User question(s); omit to run built-in sample queries",
     )
-    parser.add_argument(
-        "--no-web",
-        action="store_true",
-        help="Call GLM without web_search tool",
-    )
     args = parser.parse_args()
-    use_web = not args.no_web
     queries: list[str] = list(args.query) if args.query else list(SAMPLE_QUERIES)
 
     base = load_poems_from_local("simplified") or []
@@ -62,7 +56,6 @@ def main() -> None:
         print("=" * 60)
         print("Query:", q)
         print("Launch time (local):", launch_at.isoformat(timespec="seconds"))
-        print("use_web_search:", use_web)
         print()
 
         cand, tag = resolve_poems_from_corpus(q, corpus)
@@ -80,7 +73,7 @@ def main() -> None:
             continue
 
         print("--- raw assistant text ---")
-        raw = fetch_poems_via_glm_web_search(q, use_web_search=use_web)
+        raw = fetch_poems_via_glm_web_search(q)
         print(raw[:4000] + ("…\n[truncated]" if len(raw) > 4000 else ""))
         print()
 
@@ -97,7 +90,7 @@ def main() -> None:
             "\n--- finalize_glm_poems_with_corpus "
             "(unique first line in corpus → title/author, else Zhipu) ---"
         )
-        poems = finalize_glm_poems_with_corpus(poems, corpus, use_web_search=use_web)
+        poems = finalize_glm_poems_with_corpus(poems, corpus)
         print(json.dumps(poems, ensure_ascii=False, indent=2))
 
         print("\n--- validate_glm_poem_against_corpus (merged local corpus) ---")

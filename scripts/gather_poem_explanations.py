@@ -67,11 +67,6 @@ def main() -> int:
         help="Pause SEC seconds between API calls (rate limiting). Default: 0.",
     )
     parser.add_argument(
-        "--no-web-search",
-        action="store_true",
-        help="Call GLM without the web_search tool (model-only释义).",
-    )
-    parser.add_argument(
         "--quiet-timing",
         action="store_true",
         help="Suppress per-request timing lines on stderr from the GLM client.",
@@ -89,7 +84,6 @@ def main() -> int:
         print(e, file=sys.stderr)
         return 1
 
-    use_web_search = not args.no_web_search
     timing_log = not args.quiet_timing
 
     base = load_poems_from_local(args.character_set) or []
@@ -136,13 +130,12 @@ def main() -> int:
         try:
             text = fetch_poem_meaning_explanation(
                 poem,
-                use_web_search=use_web_search,
                 timing=timing_log,
             )
             upsert_explanation(
                 poem_id,
                 text,
-                web_search=use_web_search,
+                web_search=True,
                 model=DEFAULT_MODEL,
             )
             fetched += 1
