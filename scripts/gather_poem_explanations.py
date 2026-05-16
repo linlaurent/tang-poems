@@ -8,6 +8,7 @@ Default `--limit 10` keeps accidental runs cheap. Pass `--all` for the full corp
   uv run python scripts/gather_poem_explanations.py
   uv run python scripts/gather_poem_explanations.py --all --skip-existing --sleep 0.5
 
+
 Stdout lines use a ``[i/N]`` prefix (candidate index in this run).
 
 Use ``--no-progress-prefix`` for plain logs.

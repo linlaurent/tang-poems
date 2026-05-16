@@ -83,10 +83,13 @@ poems/
 │   ├── data_loader.py      # 诗歌数据加载模块（支持简繁切换）
 │   ├── quiz.py             # 测验模式逻辑
 │   ├── flashcards.py       # 闪卡模式逻辑
+│   ├── poem_web_supplement.py # 智谱 GLM 联网搜诗、gather_explanations_for_poems 等
+│   ├── poem_explanations_store.py # 释义本地 JSON 读写
 │   ├── stroke_order.py     # 笔顺查询模块（使用 cnchar-data）
 │   └── stroke_widget.py    # 笔顺交互组件
 ├── scripts/
 │   ├── convert_to_simplified.py  # 繁体转简体转换脚本
+│   ├── gather_poem_explanations.py # Zhipu 批量写入 poem_explanations.json
 │   ├── gather_poems.py     # 诗歌数据采集脚本
 │   └── remove_duplicates.py # 去重脚本
 ├── data/
@@ -118,6 +121,19 @@ poems/
 - 标记诗歌为"已掌握"或"需练习"
 - 使用导航按钮浏览不同的诗歌
 - 查看学习进度统计
+
+### 智谱释义与批量抓取（可选）
+
+需设置环境变量 **`ZHIPU_API_KEY`**。应用内联网检索诗稿后也会尝试并为待加入诗作抓取释义。
+
+在代码中批量为多首诗请求释义可使用 **`gather_explanations_for_poems`**（定义于 [`src/poem_web_supplement.py`](src/poem_web_supplement.py)）：入参为诗字典列表（需含可用的 **`id`** 与正文等字段）、`use_web_search`（是否与联网释义一致）、`timing`（是否打印单次请求耗时到 stderr）；返回值为 **`Dict[诗 id, 释义正文]`**，无 `id` 或单次请求失败的条目会被跳过。
+
+命令行可对本地合并后的诗库批量写入 `data/poem_explanations.json`：
+
+```bash
+uv run python scripts/gather_poem_explanations.py --quiet-timing
+uv run python scripts/gather_poem_explanations.py --all --skip-existing --sleep 0.5
+```
 
 ## 数据来源
 

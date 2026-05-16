@@ -46,6 +46,7 @@ from src.poem_explanations_store import get_explanation, upsert_explanation
 from src.poem_web_supplement import (
     commit_poems_to_supplement,
     fetch_poem_meaning_explanation,
+    gather_explanations_for_poems,
     is_poem_in_corpus,
     preview_poems_from_web_query,
     validate_glm_poem_against_corpus,
@@ -230,6 +231,12 @@ def render_web_poem_preview_block(
             st.rerun()
         return
 
+    if plist and preview.get("explanations_skipped"):
+        st.info(
+            f"未设置 {ZHIPU_API_KEY_ENV} 环境变量："
+            "已显示检索到的诗作，但不会自动抓取释义。"
+        )
+
     labels: list[str] = []
     default_labels: list[str] = []
     for i, p in enumerate(plist):
@@ -247,6 +254,13 @@ def render_web_poem_preview_block(
                 f'<div class="poem-content">{p["content"]}</div>',
                 unsafe_allow_html=True,
             )
+            _expl_map_raw = preview.get("explanations")
+            _expl_map: dict = _expl_map_raw if isinstance(_expl_map_raw, dict) else {}
+            _eid = str(p.get("id") or "").strip()
+            _expl_txt = (_expl_map.get(_eid) or "").strip()
+            if _expl_txt:
+                st.markdown("**释义**")
+                st.markdown(_expl_txt)
             st.markdown("**本地库交叉验证**")
             v_lvl, v_msg = validate_glm_poem_against_corpus(p, trimmed_query, corpus)
             if v_lvl == "ok":
@@ -275,7 +289,14 @@ def render_web_poem_preview_block(
                         chosen.append(plist[idx])
                 except (ValueError, IndexError):
                     continue
-            added, err, added_poems = commit_poems_to_supplement(chosen, corpus)
+            added, err, added_poems = commit_poems_to_supplement(
+                chosen,
+                corpus,
+                explanations_by_poem_id=preview.get("explanations")
+                if isinstance(preview.get("explanations"), dict)
+                else None,
+                explanation_web_search=bool(preview.get("use_web_search", True)),
+            )
             if err:
                 st.error(err)
             elif added == 0:
@@ -635,11 +656,25 @@ def flashcard_mode():
                 if err_fc:
                     st.error(err_fc)
                 else:
+                    explanations_map: dict = {}
+                    explanations_skipped = False
+                    if api_ok_fc and plist_fc:
+                        with st.spinner("正在检索释义…"):
+                            explanations_map = gather_explanations_for_poems(
+                                plist_fc,
+                                use_web_search=use_web_fc,
+                                timing=False,
+                            )
+                    elif plist_fc:
+                        explanations_skipped = True
+
                     st.session_state[preview_key_fc] = {
                         "query": q_fc,
                         "poems": plist_fc,
                         "use_web_search": use_web_fc,
                         "corpus_tag": corpus_tag_fc,
+                        "explanations": explanations_map,
+                        "explanations_skipped": explanations_skipped,
                     }
         if not api_ok_fc:
             st.caption(

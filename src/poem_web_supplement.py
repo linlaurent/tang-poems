@@ -8,7 +8,8 @@ from uuid import uuid4
 
 from src.data_loader import append_supplement_poems, search_poems
 from src.poem_corpus_lookup import resolve_poems_from_corpus
-from src.zhipu_glm import chat_completion
+from src.poem_explanations_store import upsert_explanation
+from src.zhipu_glm import DEFAULT_MODEL, chat_completion
 
 
 def _normalize_key_part(s: str) -> str:
@@ -424,6 +425,32 @@ def fetch_poem_meaning_explanation(
     return chat_completion(messages, web_search=use_web_search, timing=timing)
 
 
+def gather_explanations_for_poems(
+    poems: list[dict],
+    *,
+    use_web_search: bool,
+    timing: bool = False,
+) -> dict[str, str]:
+    """
+    Fetch 释义 per poem (same web_search behavior as retrieval). Missing ``id``
+    rows are skipped; per-poem API failures are swallowed (omit that id).
+    """
+    out: dict[str, str] = {}
+    for p in poems:
+        pid = str(p.get("id") or "").strip()
+        if not pid:
+            continue
+        try:
+            text = fetch_poem_meaning_explanation(
+                p, use_web_search=use_web_search, timing=timing
+            ).strip()
+        except Exception:
+            continue
+        if text:
+            out[pid] = text
+    return out
+
+
 def preview_poems_from_web_query(
     user_query: str,
     *,
@@ -450,9 +477,16 @@ def preview_poems_from_web_query(
 
 
 def commit_poems_to_supplement(
-    candidates: list[dict], corpus: list[dict]
+    candidates: list[dict],
+    corpus: list[dict],
+    *,
+    explanations_by_poem_id: dict[str, str] | None = None,
+    explanation_web_search: bool = False,
 ) -> tuple[int, str | None, list[dict]]:
     """Dedupe against corpus and batch; append new rows to supplement file.
+
+    Optionally persist prefetched explanations (keyed by poem ``id``) for rows
+    that are actually appended.
 
     Returns (count, error, poems_actually_appended).
     """
@@ -472,6 +506,22 @@ def commit_poems_to_supplement(
         return 0, None, []
 
     append_supplement_poems(to_add)
+
+    expl = explanations_by_poem_id or {}
+    if expl:
+        for p in to_add:
+            pid = str(p.get("id") or "").strip()
+            if not pid:
+                continue
+            txt = expl.get(pid)
+            if isinstance(txt, str) and txt.strip():
+                upsert_explanation(
+                    pid,
+                    txt.strip(),
+                    web_search=explanation_web_search,
+                    model=DEFAULT_MODEL,
+                )
+
     return len(to_add), None, to_add
 
 
@@ -493,7 +543,15 @@ def supplement_poems_from_web_query(
         return 0, err
     if not poems:
         return 0, None
-    n, err2, _ = commit_poems_to_supplement(poems, corpus)
+    explanations = gather_explanations_for_poems(
+        poems, use_web_search=use_web_search, timing=False
+    )
+    n, err2, _ = commit_poems_to_supplement(
+        poems,
+        corpus,
+        explanations_by_poem_id=explanations or None,
+        explanation_web_search=use_web_search,
+    )
     if err2:
         return 0, err2
     return n, None
