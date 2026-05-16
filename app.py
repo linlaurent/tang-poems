@@ -300,140 +300,6 @@ def render_web_poem_preview_block(
             st.rerun()
 
 
-def display_mode():
-    """Display mode: Browse and search poems."""
-    st.header("📖 浏览唐诗")
-
-    poems = load_poems(_get_character_set())
-
-    col_in, col_web, col_cnt = st.columns([4, 1, 1])
-    with col_in:
-        search_query = st.text_input(
-            "🔍 搜索诗歌（标题、作者或内容）",
-            placeholder="输入关键词...",
-            key="poem_search_input",
-        )
-    q = search_query.strip() if search_query else ""
-    preview_key_browse = "web_preview_browse"
-    pv_b = st.session_state.get(preview_key_browse)
-    if pv_b and pv_b.get("query") != q:
-        st.session_state.pop(preview_key_browse, None)
-
-    api_ok = bool(os.environ.get(ZHIPU_API_KEY_ENV))
-    use_web = _glm_use_web_search()
-    with col_web:
-        st.write("")
-        btn_help = (
-            "使用智谱 GLM 检索诗词（需 ZHIPU_API_KEY）。"
-            "侧边栏可关闭「联网」以仅用模型。"
-        )
-        if st.button(
-            "联网搜索" if use_web else "模型检索",
-            disabled=not q,
-            key="browse_web_glm_btn",
-            help=btn_help,
-        ):
-            with st.spinner("正在检索…"):
-                plist, err, corpus_tag = preview_poems_from_web_query(
-                    q,
-                    use_web_search=use_web,
-                    corpus=poems,
-                )
-            if err:
-                st.error(err)
-            else:
-                st.session_state[preview_key_browse] = {
-                    "query": q,
-                    "poems": plist,
-                    "use_web_search": use_web,
-                    "corpus_tag": corpus_tag,
-                }
-    with col_cnt:
-        st.write("")
-        st.write(f"**共 {len(poems)} 首**")
-    if not api_ok:
-        st.caption(
-            f"未设置 {ZHIPU_API_KEY_ENV} 时仅尝试本地诗库匹配；"
-            f"需联网/模型补全时请配置该环境变量。"
-        )
-
-    if q:
-        filtered_poems = search_poems(poems, search_query)
-    else:
-        filtered_poems = poems
-
-    if q:
-        if not filtered_poems:
-            st.warning(f"未找到匹配「{search_query}」的诗歌。")
-            st.info("💡 提示：可尝试作者名或标题关键词；或使用上方「联网搜索」。")
-        else:
-            st.success(f"找到 {len(filtered_poems)} 首匹配的诗歌")
-    else:
-        st.info(
-            f"显示全部 {len(filtered_poems)} 首诗歌（在搜索框输入关键词可进行筛选）"
-        )
-
-    render_web_poem_preview_block(
-        preview_state_key=preview_key_browse,
-        trimmed_query=q,
-        corpus=poems,
-        after_commit_pop_flashcard=False,
-    )
-
-    if not filtered_poems:
-        return
-
-    # Pagination
-    poems_per_page = 5
-    total_pages = (len(filtered_poems) + poems_per_page - 1) // poems_per_page
-
-    # Initialize or reset page when search changes
-    if "last_search_query" not in st.session_state:
-        st.session_state.last_search_query = search_query
-        st.session_state.display_page = 0
-    elif st.session_state.last_search_query != search_query:
-        # Search query changed, reset to first page
-        st.session_state.last_search_query = search_query
-        st.session_state.display_page = 0
-
-    if "display_page" not in st.session_state:
-        st.session_state.display_page = 0
-
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
-        if st.button("◀ 上一页", disabled=(st.session_state.display_page == 0)):
-            st.session_state.display_page -= 1
-            st.rerun()
-    with col2:
-        st.write(f"**第 {st.session_state.display_page + 1} / {total_pages} 页**")
-    with col3:
-        if st.button(
-            "下一页 ▶", disabled=(st.session_state.display_page >= total_pages - 1)
-        ):
-            st.session_state.display_page += 1
-            st.rerun()
-
-    # Display poems for current page
-    start_idx = st.session_state.display_page * poems_per_page
-    end_idx = min(start_idx + poems_per_page, len(filtered_poems))
-
-    for i in range(start_idx, end_idx):
-        poem = filtered_poems[i]
-        with st.container():
-            author_dynasty = f"作者：{poem['author']} | 朝代：{poem['dynasty']}"
-            st.markdown(
-                f"""
-            <div class="poem-card">
-                <div class="poem-title">{poem["title"]}</div>
-                <div class="poem-author">{author_dynasty}</div>
-                <div class="poem-content">{poem["content"]}</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-            st.write("")
-
-
 def quiz_mode():
     """Quiz mode: Test knowledge with questions."""
     st.header("🎯 测验模式")
@@ -1607,7 +1473,6 @@ def main():
             "选择学习模式：",
             [
                 "🃏 闪卡模式",
-                "📖 浏览模式",
                 "🎯 测验模式",
                 "🔎 查拼音与字形",
                 "📊 数据分析",
@@ -1640,8 +1505,6 @@ def main():
     # Route to appropriate mode
     if "闪卡模式" in mode:
         flashcard_mode()
-    elif "浏览模式" in mode:
-        display_mode()
     elif "测验模式" in mode:
         quiz_mode()
     elif "查拼音" in mode:
