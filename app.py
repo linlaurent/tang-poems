@@ -317,6 +317,7 @@ def render_web_poem_preview_block(
 def quiz_mode():
     """Quiz mode: Test knowledge with questions."""
     st.header("🎯 测验模式")
+    default_quiz_source = "已掌握"
 
     poems = load_poems(_get_character_set())
 
@@ -324,15 +325,45 @@ def quiz_mode():
         st.error("无法加载诗歌数据。")
         return
 
+    user_id = get_user_id()
+    flashcard_state = st.session_state.get("flashcard_state")
+    if flashcard_state is None or flashcard_state.get("poems") != poems:
+        flashcard_state = initialize_flashcard_session(poems, user_id)
+
+    known_poems = flashcard_state.get("known_poems", set())
+    practice_poems = flashcard_state.get("practice_poems", set())
+    quiz_source_options = {
+        "全部": poems,
+        "已掌握": [poem for poem in poems if poem.get("id") in known_poems],
+        "需练习": [poem for poem in poems if poem.get("id") in practice_poems],
+    }
+
     # Initialize quiz session
     if "quiz_state" not in st.session_state:
-        st.session_state.quiz_state = initialize_quiz_session(poems)
+        st.session_state.quiz_state = initialize_quiz_session(
+            quiz_source_options[default_quiz_source]
+        )
+        st.session_state.quiz_state["quiz_source"] = default_quiz_source
 
     quiz_state = st.session_state.quiz_state
 
     # Quiz type selection
     col1, col2 = st.columns(2)
     with col1:
+        previous_quiz_source = quiz_state.get("quiz_source", default_quiz_source)
+        if previous_quiz_source not in quiz_source_options:
+            previous_quiz_source = default_quiz_source
+        quiz_source = st.radio(
+            "选择出题范围：",
+            list(quiz_source_options.keys()),
+            index=list(quiz_source_options.keys()).index(previous_quiz_source),
+            horizontal=True,
+        )
+        if quiz_source != quiz_state.get("quiz_source", default_quiz_source):
+            quiz_state = initialize_quiz_session(quiz_source_options[quiz_source])
+            quiz_state["quiz_source"] = quiz_source
+            st.session_state.quiz_state = quiz_state
+
         quiz_type = st.radio(
             "选择测验类型：",
             ["选择题", "填空题"],
@@ -345,8 +376,19 @@ def quiz_mode():
 
     with col2:
         if st.button("🔄 重新开始"):
-            st.session_state.quiz_state = initialize_quiz_session(poems)
+            st.session_state.quiz_state = initialize_quiz_session(
+                quiz_source_options[quiz_state.get("quiz_source", default_quiz_source)]
+            )
+            st.session_state.quiz_state["quiz_source"] = quiz_state.get(
+                "quiz_source", default_quiz_source
+            )
             st.rerun()
+
+    selected_quiz_source = quiz_state.get("quiz_source", default_quiz_source)
+    quiz_poems = quiz_source_options[selected_quiz_source]
+    if not quiz_poems:
+        st.warning(f"当前出题范围“{selected_quiz_source}”中还没有诗。")
+        return
 
     # Score display
     if quiz_state["total_questions"] > 0:
@@ -359,7 +401,7 @@ def quiz_mode():
 
     # Generate question if needed
     if quiz_state["current_question"] is None:
-        quiz_state = get_next_question(poems, quiz_state)
+        quiz_state = get_next_question(quiz_poems, quiz_state)
         st.session_state.quiz_state = quiz_state
 
     # Display question
@@ -405,7 +447,7 @@ def quiz_mode():
     # Next question button
     if quiz_state.get("answered", False):
         if st.button("下一题 ➡", type="primary"):
-            quiz_state = get_next_question(poems, quiz_state)
+            quiz_state = get_next_question(quiz_poems, quiz_state)
             st.session_state.quiz_state = quiz_state
             st.rerun()
 
