@@ -749,8 +749,6 @@ def flashcard_mode():
                         current_id = flashcard_state.get("current_id", "")
                         if current_id:
                             # Find current poem's index
-                            from src.data_loader import get_poem_index_by_id
-
                             current_idx = get_poem_index_by_id(poems, current_id)
                             if (
                                 current_idx is not None
@@ -803,8 +801,6 @@ def flashcard_mode():
             # Find current poem in sorted list
             current_option_idx = 0
             if current_id:
-                from src.data_loader import get_poem_index_by_id
-
                 current_idx = get_poem_index_by_id(poems, current_id)
                 if current_idx is not None:
                     try:
@@ -1014,8 +1010,6 @@ def flashcard_mode():
                 st.write(f"**{current_pos} / {total_filtered}**")
                 if flashcard_state.get("filter_mode", "all") != "all":
                     # Get current poem index for display
-                    from src.data_loader import get_poem_index_by_id
-
                     current_id = flashcard_state.get("current_id", "")
                     current_idx = get_poem_index_by_id(poems, current_id)
                     if current_idx is not None:
