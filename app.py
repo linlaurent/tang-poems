@@ -188,6 +188,27 @@ def get_user_id() -> str:
     return "guest"
 
 
+def _first_poem_line(poem: dict) -> str:
+    content = str(poem.get("content") or "").replace("\r\n", "\n")
+    for line in content.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def _format_poem_option(poem: dict, *, include_author: bool = True) -> str:
+    title = poem.get("title", "无题")
+    author = poem.get("author", "未知")
+    base = f"{title} - {author}" if include_author else str(title)
+    first_line = _first_poem_line(poem)
+    if not first_line:
+        return base
+    if len(first_line) > 18:
+        first_line = f"{first_line[:18]}..."
+    return f"{base} | {first_line}"
+
+
 def _get_character_set() -> str:
     """Get the current character set setting from session state."""
     return st.session_state.get("character_set", "simplified")
@@ -747,41 +768,24 @@ def flashcard_mode():
         if search_query and search_query.strip():
             search_results = search_poems(poems, search_query)
             if search_results:
-                # Find indices of search results by matching title and author
-                result_data = []  # List of (idx, title, author)
-                seen = set()
-
-                for poem in search_results:
-                    poem_title = poem.get("title", "")
-                    poem_author = poem.get("author", "")
-                    poem_key = (poem_title, poem_author)
-
-                    if poem_key in seen:
-                        continue
-                    seen.add(poem_key)
-
-                    # Find the index in original poems list
-                    for idx, p in enumerate(poems):
-                        if (
-                            p.get("title", "") == poem_title
-                            and p.get("author", "") == poem_author
-                        ):
-                            result_data.append((idx, poem_title, poem_author))
-                            break
+                result_ids = {id(poem) for poem in search_results}
+                result_indices = [
+                    idx for idx, poem in enumerate(poems) if id(poem) in result_ids
+                ]
 
                 # Sort by title pinyin
-                result_data.sort(key=lambda x: "".join(lazy_pinyin(x[1])))
+                result_indices.sort(
+                    key=lambda idx: "".join(
+                        lazy_pinyin(poems[idx].get("title", "无题"))
+                    )
+                )
 
-                if result_data:
-                    result_indices = [idx for idx, _, _ in result_data]
-                    result_options = [
-                        f"{title} - {author}" for idx, title, author in result_data
-                    ]
-
-                    st.write(f"找到 {len(result_options)} 首匹配的诗歌：")
+                if result_indices:
+                    st.write(f"找到 {len(result_indices)} 首匹配的诗歌：")
                     selected_search_result = st.selectbox(
                         "选择诗歌",
-                        result_options,
+                        result_indices,
+                        format_func=lambda idx: _format_poem_option(poems[idx]),
                         key="search_result_select_flashcard",
                         label_visibility="collapsed",
                     )
@@ -791,11 +795,9 @@ def flashcard_mode():
                         width="stretch",
                         key="jump_search_result",
                     ):
-                        selected_option_idx = result_options.index(
-                            selected_search_result
+                        flashcard_state = jump_to_poem(
+                            flashcard_state, selected_search_result
                         )
-                        selected_idx = result_indices[selected_option_idx]
-                        flashcard_state = jump_to_poem(flashcard_state, selected_idx)
                         st.session_state.flashcard_state = flashcard_state
                         st.rerun()
             else:
@@ -829,10 +831,6 @@ def flashcard_mode():
                 # Get poems by this author
                 author_poems_indices = get_poems_by_author(poems, selected_author)
                 if author_poems_indices:
-                    # Create options with titles (no ID)
-                    author_poem_options = [
-                        poems[idx].get("title", "无题") for idx in author_poems_indices
-                    ]
                     # Find current poem index in the list if author matches
                     selected_poem_idx_in_list = 0
                     if current_author == selected_author and current_poem:
@@ -849,8 +847,11 @@ def flashcard_mode():
                                 )
 
                     selected_poem_option = st.selectbox(
-                        f"选择诗歌 ({len(author_poem_options)} 首)",
-                        author_poem_options,
+                        f"选择诗歌 ({len(author_poems_indices)} 首)",
+                        author_poems_indices,
+                        format_func=lambda idx: _format_poem_option(
+                            poems[idx], include_author=False
+                        ),
                         index=selected_poem_idx_in_list,
                         key="poem_select_by_author_flashcard",
                     )
@@ -860,10 +861,9 @@ def flashcard_mode():
                         width="stretch",
                         key="jump_author_poem",
                     ):
-                        # Extract index from selection
-                        option_idx = author_poem_options.index(selected_poem_option)
-                        selected_idx = author_poems_indices[option_idx]
-                        flashcard_state = jump_to_poem(flashcard_state, selected_idx)
+                        flashcard_state = jump_to_poem(
+                            flashcard_state, selected_poem_option
+                        )
                         st.session_state.flashcard_state = flashcard_state
                         st.rerun()
                 else:
@@ -871,21 +871,11 @@ def flashcard_mode():
 
         with adv_nav_col2:
             # Poem title dropdown (all poems) - sorted by title pinyin
-            # Create list with (index, title, author) for sorting
-            poem_data = [
-                (idx, poem.get("title", "无题"), poem.get("author", "未知"))
-                for idx, poem in enumerate(poems)
-            ]
+            poem_options = list(range(len(poems)))
             # Sort by title pinyin
-            poem_data.sort(key=lambda x: "".join(lazy_pinyin(x[1])))
-
-            # Create options without IDs
-            poem_options = [
-                f"{title} - {author}" for orig_idx, title, author in poem_data
-            ]
-
-            # Map option index to original poem index
-            poem_index_map = [orig_idx for orig_idx, _, _ in poem_data]
+            poem_options.sort(
+                key=lambda idx: "".join(lazy_pinyin(poems[idx].get("title", "无题")))
+            )
 
             current_id = flashcard_state.get("current_id", "")
             # Find current poem in sorted list
@@ -894,21 +884,20 @@ def flashcard_mode():
                 current_idx = get_poem_index_by_id(poems, current_id)
                 if current_idx is not None:
                     try:
-                        current_option_idx = poem_index_map.index(current_idx)
+                        current_option_idx = poem_options.index(current_idx)
                     except ValueError:
                         current_option_idx = 0
 
             selected_poem = st.selectbox(
                 "按标题搜索",
                 poem_options,
+                format_func=lambda idx: _format_poem_option(poems[idx]),
                 index=current_option_idx,
                 key="poem_select_all_flashcard",
             )
 
             if st.button("📍 跳转到此诗", width="stretch", key="jump_all_poem"):
-                selected_option_idx = poem_options.index(selected_poem)
-                selected_idx = poem_index_map[selected_option_idx]
-                flashcard_state = jump_to_poem(flashcard_state, selected_idx)
+                flashcard_state = jump_to_poem(flashcard_state, selected_poem)
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
 

@@ -21,8 +21,22 @@ def _normalize_key_part(s: str) -> str:
     return " ".join(s.strip().split())
 
 
+def _normalize_content_key(s: str) -> str:
+    return "\n".join(
+        line.strip() for line in s.replace("\r\n", "\n").splitlines()
+    ).strip()
+
+
 def poem_dedupe_key(title: str, author: str) -> tuple[str, str]:
     return (_normalize_key_part(title), _normalize_key_part(author))
+
+
+def poem_identity_key(poem: dict) -> tuple[str, str, str]:
+    return (
+        _normalize_key_part(str(poem.get("title", ""))),
+        _normalize_key_part(str(poem.get("author", ""))),
+        _normalize_content_key(str(poem.get("content", ""))),
+    )
 
 
 def corpus_title_author_keys(poems: list[dict]) -> set[tuple[str, str]]:
@@ -34,11 +48,12 @@ def corpus_title_author_keys(poems: list[dict]) -> set[tuple[str, str]]:
     return keys
 
 
+def corpus_poem_identity_keys(poems: list[dict]) -> set[tuple[str, str, str]]:
+    return {poem_identity_key(p) for p in poems}
+
+
 def is_poem_in_corpus(poem: dict, corpus: list[dict]) -> bool:
-    return poem_dedupe_key(
-        str(poem.get("title", "")),
-        str(poem.get("author", "")),
-    ) in corpus_title_author_keys(corpus)
+    return poem_identity_key(poem) in corpus_poem_identity_keys(corpus)
 
 
 def _first_content_line_for_validation(content: str, *, min_len: int = 4) -> str | None:
@@ -481,12 +496,12 @@ def commit_poems_to_supplement(
 
     Returns (count, error, poems_actually_appended).
     """
-    existing = corpus_title_author_keys(corpus)
+    existing = corpus_poem_identity_keys(corpus)
     to_add: list[dict] = []
-    seen_new: set[tuple[str, str]] = set()
+    seen_new: set[tuple[str, str, str]] = set()
 
     for p in candidates:
-        key = poem_dedupe_key(p["title"], p["author"])
+        key = poem_identity_key(p)
         if key in existing or key in seen_new:
             continue
         seen_new.add(key)
