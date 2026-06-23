@@ -1046,7 +1046,9 @@ def get_current_poem_status(flashcard_state: dict) -> str:
         return "unknown"
 
 
-def jump_to_poem(flashcard_state: dict, poem_index: int, save: bool = True) -> dict:
+def jump_to_poem(
+    flashcard_state: dict, poem_index: int, save: bool = True, reveal: bool = False
+) -> dict:
     """
     Jump to a specific poem by index.
     If save is True, automatically saves progress to file.
@@ -1056,7 +1058,7 @@ def jump_to_poem(flashcard_state: dict, poem_index: int, save: bool = True) -> d
         poem_id = get_poem_id_by_index(poems, poem_index)
         if poem_id:
             flashcard_state["current_id"] = poem_id
-            flashcard_state["revealed"] = False
+            flashcard_state["revealed"] = reveal
 
             if save:
                 save_progress(flashcard_state)

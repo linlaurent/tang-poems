@@ -587,7 +587,9 @@ def flashcard_mode():
     if "jump_to_index" in st.session_state:
         jump_idx = st.session_state.pop("jump_to_index")
         if 0 <= jump_idx < len(poems):
-            flashcard_state = jump_to_poem(flashcard_state, jump_idx, save=False)
+            flashcard_state = jump_to_poem(
+                flashcard_state, jump_idx, save=False, reveal=True
+            )
             st.session_state.flashcard_state = flashcard_state
             st.rerun()
 
@@ -598,7 +600,9 @@ def flashcard_mode():
     if _web_commit_target:
         _jump_idx = get_poem_index_by_id(poems, _web_commit_target)
         if _jump_idx is not None:
-            flashcard_state = jump_to_poem(flashcard_state, _jump_idx, save=True)
+            flashcard_state = jump_to_poem(
+                flashcard_state, _jump_idx, save=True, reveal=True
+            )
             st.session_state.flashcard_state = flashcard_state
             st.rerun()
 
@@ -796,7 +800,7 @@ def flashcard_mode():
                         key="jump_search_result",
                     ):
                         flashcard_state = jump_to_poem(
-                            flashcard_state, selected_search_result
+                            flashcard_state, selected_search_result, reveal=True
                         )
                         st.session_state.flashcard_state = flashcard_state
                         st.rerun()
@@ -862,7 +866,7 @@ def flashcard_mode():
                         key="jump_author_poem",
                     ):
                         flashcard_state = jump_to_poem(
-                            flashcard_state, selected_poem_option
+                            flashcard_state, selected_poem_option, reveal=True
                         )
                         st.session_state.flashcard_state = flashcard_state
                         st.rerun()
@@ -897,7 +901,9 @@ def flashcard_mode():
             )
 
             if st.button("📍 跳转到此诗", width="stretch", key="jump_all_poem"):
-                flashcard_state = jump_to_poem(flashcard_state, selected_poem)
+                flashcard_state = jump_to_poem(
+                    flashcard_state, selected_poem, reveal=True
+                )
                 st.session_state.flashcard_state = flashcard_state
                 st.rerun()
 
