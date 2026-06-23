@@ -1,23 +1,26 @@
-# 唐诗三百首学习应用
+# 诗词学习应用
 
-一个使用 Streamlit 构建的交互式学习应用，用于学习《唐诗三百首》。
+一个使用 Streamlit 构建的中文诗词学习应用，支持《唐诗三百首》与可扩展诗词库的闪卡记忆、测验练习、学习分析、拼音与笔顺查询。
 
 ## 功能特性
 
-- **📖 浏览模式**：浏览和搜索唐诗，支持按标题、作者或内容搜索
-- **🎯 测验模式**：通过选择题和填空题测试对唐诗的掌握程度
-- **🃏 闪卡模式**：使用闪卡方式记忆诗歌，可标记已掌握或需练习的诗歌
-- **📊 数据分析**：查看学习进度时间线、连续学习天数、个性化学习建议
-- **✍️ 笔顺查询**：查询汉字的笔画顺序（需要 cnchar-data 数据集，可选功能）
-- **🔤 简繁切换**：支持简体中文和繁體中文显示，可在侧边栏设置中切换（默认简体）
+- **🃏 闪卡模式**：逐首学习诗词，标记「已掌握」或「需练习」，并支持按状态、作者、标题和关键词快速定位。
+- **🎯 测验模式**：通过选择题和填空题练习，可选择从已掌握、需练习或全部诗词中出题。
+- **🔎 查拼音与字形**：输入字词、诗句或整段文本，查看拼音、笔画数、Unicode 信息和交互式笔顺。
+- **📊 数据分析**：查看学习进度、连续学习天数、时间线、作者维度统计和个性化复习建议。
+- **📚 多诗词库**：侧边栏可切换《唐诗三百首》和宋词语料；本地扩展库会自动并入当前语料。
+- **🔤 简繁切换**：侧边栏可切换简体中文和繁體中文显示。
+- **🤖 智谱 GLM 集成（可选）**：联网检索诗词、补充扩展库，并为诗词抓取或刷新释义。
 
 ## 技术栈
 
+- **Python 3.9+**
 - **Streamlit**：Web 应用框架
-- **Python 3.9+**：编程语言
-- **uv**：快速 Python 包管理器
-- **requests**：HTTP 请求库
-- **beautifulsoup4**：HTML 解析库（用于数据抓取）
+- **uv**：依赖和虚拟环境管理
+- **pandas**：学习数据展示和分析
+- **pypinyin**：标题排序、拼音查询
+- **openai**：以 OpenAI-compatible SDK 调用智谱 GLM
+- **requests / beautifulsoup4 / lxml**：数据抓取和解析脚本
 
 ## 安装与运行
 
@@ -26,107 +29,95 @@
 - Python 3.9 或更高版本
 - [uv](https://github.com/astral-sh/uv) 包管理器
 
-### 安装步骤
+如果尚未安装 uv：
 
-1. 克隆或下载项目到本地
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-2. 使用 uv 安装依赖：
+### 安装依赖
 
 ```bash
 uv sync
 ```
 
-或者如果 uv 未安装，先安装 uv：
+开发依赖（ruff、pre-commit）：
 
 ```bash
-# macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 或使用 pip
-pip install uv
+uv sync --extra dev
 ```
 
-3. （可选）获取笔顺数据：如需使用笔顺查询功能，请克隆 cnchar-data 数据集：
-
-```bash
-git clone --depth 1 https://github.com/cn-char/cnchar-data.git data/cnchar-data
-```
-
-4. 运行应用：
+### 运行应用
 
 ```bash
 uv run streamlit run app.py
 ```
 
-或者激活虚拟环境后运行：
+应用会在浏览器中打开，默认地址为 `http://localhost:8501`。
+
+### 可选配置
+
+如需在访客模式之外自动设置默认用户：
 
 ```bash
-source .venv/bin/activate  # Linux/macOS
-# 或
-.venv\Scripts\activate  # Windows
-
-streamlit run app.py
+export DEFAULT_POEM_USER="your-name"
 ```
 
-应用将在浏览器中自动打开，默认地址为 `http://localhost:8501`
+如需使用联网检索和释义功能：
 
-## 项目结构
-
+```bash
+export ZHIPU_API_KEY="your-api-key"
 ```
-poems/
-├── pyproject.toml          # uv 项目配置和依赖
-├── uv.lock                 # uv 锁定文件（自动生成）
-├── app.py                  # 主 Streamlit 应用
-├── src/
-│   ├── __init__.py
-│   ├── analytics.py        # 数据分析模块
-│   ├── data_loader.py      # 诗歌数据加载模块（支持简繁切换）
-│   ├── quiz.py             # 测验模式逻辑
-│   ├── flashcards.py       # 闪卡模式逻辑
-│   ├── poem_web_supplement.py # 智谱 GLM 联网搜诗、gather_explanations_for_poems 等
-│   ├── poem_explanations_store.py # 释义本地 JSON 读写
-│   ├── stroke_order.py     # 笔顺查询模块（使用 cnchar-data）
-│   └── stroke_widget.py    # 笔顺交互组件
-├── scripts/
-│   ├── convert_to_simplified.py  # 繁体转简体转换脚本
-│   ├── gather_poem_explanations.py # Zhipu 批量写入 poem_explanations.json
-│   ├── gather_poems.py     # 诗歌数据采集脚本
-│   └── remove_duplicates.py # 去重脚本
-├── data/
-│   ├── 唐诗三百首.json      # 简体中文诗歌数据（默认）
-│   ├── 唐诗三百首_繁体.json  # 繁體中文诗歌数据
-│   └── cnchar-data/        # 笔顺数据集（可选）
-└── README.md               # 项目文档
+
+如需完整笔顺数据，请克隆 `cnchar-data` 数据集：
+
+```bash
+git clone --depth 1 https://github.com/cn-char/cnchar-data.git data/cnchar-data
 ```
 
 ## 使用说明
 
-### 浏览模式
+### 闪卡模式
 
-- 在搜索框中输入关键词（标题、作者或内容）来过滤诗歌
-- 使用分页按钮浏览不同页面的诗歌
-- 每首诗显示标题、作者、朝代和完整内容
+- 在侧边栏选择诗词库和简繁体显示。
+- 输入用户名后，学习进度会按用户保存；访客模式不会持久保存进度。
+- 可用筛选、作者下拉、标题下拉或关键词搜索跳转到指定诗词。
+- 点击「联网搜诗」可从本地库或智谱 GLM 检索诗词，并保存到当前语料的扩展库。
+- 支持导出和导入学习进度 JSON。
 
 ### 测验模式
 
-- 选择测验类型：选择题或填空题
-- 回答题目后查看正确答案
-- 系统会跟踪你的得分和准确率
-- 点击"下一题"继续练习
+- 选择出题范围和题型后开始练习。
+- 选择题和填空题都会在提交后显示反馈。
+- 测验题库会跟随当前诗词库和学习状态变化。
 
-### 闪卡模式
+### 查拼音与字形
 
-- 查看诗歌的标题和作者
-- 点击"显示内容"查看完整诗歌
-- 标记诗歌为"已掌握"或"需练习"
-- 使用导航按钮浏览不同的诗歌
-- 查看学习进度统计
+- 输入任意中文文本，应用会逐字显示拼音、笔画数和 Unicode。
+- 下方交互区域支持悬停查看注音，双击单字查看笔顺。
 
-### 智谱释义与批量抓取（可选）
+### 数据分析
 
-需设置环境变量 **`ZHIPU_API_KEY`**。应用内诗词检索和释义查询始终使用联网检索；检索到待加入诗作后，也会尝试为其抓取释义。
+- 需要使用非访客用户并产生闪卡学习记录。
+- 可查看整体进度、时间线、连续学习天数、作者统计和推荐复习列表。
+- 支持导出分析数据 JSON。
 
-在代码中批量为多首诗请求释义可使用 **`gather_explanations_for_poems`**（定义于 [`src/poem_web_supplement.py`](src/poem_web_supplement.py)）：入参为诗字典列表（需含可用的 **`id`** 与正文等字段）和 `timing`（是否打印单次请求耗时到 stderr）；返回值为 **`Dict[诗 id, 释义正文]`**，无 `id` 或单次请求失败的条目会被跳过。
+## 数据与扩展库
+
+本地数据位于 `data/`：
+
+- `唐诗三百首.json`：简体《唐诗三百首》（默认）
+- `唐诗三百首_繁体.json`：繁體《唐诗三百首》
+- `poems_supplement.json`：唐诗扩展库
+- `song_ci_supplement.json`：宋词扩展库
+- `poem_explanations.json`：本地释义缓存
+- `cnchar-data/`：笔顺数据集（可选）
+
+加载数据时，应用优先读取本地语料，再合并对应扩展库。《唐诗三百首》在本地数据不可用时会尝试公共 API，失败后使用内置示例数据；宋词语料依赖本地文件或扩展库。
+
+## 智谱释义与批量抓取
+
+设置 `ZHIPU_API_KEY` 后，应用内可以联网检索诗词和查询释义。检索到的新诗词可写入当前诗词库对应的扩展 JSON。
 
 命令行可对本地合并后的诗库批量写入 `data/poem_explanations.json`：
 
@@ -135,34 +126,57 @@ uv run python scripts/gather_poem_explanations.py --quiet-timing
 uv run python scripts/gather_poem_explanations.py --all --skip-existing --sleep 0.5
 ```
 
-## 数据来源
+代码中也可调用 `gather_explanations_for_poems`（定义于 `src/poem_web_supplement.py`）批量获取释义；入参为诗词字典列表，返回值为 `dict[诗词 id, 释义正文]`。
 
-诗歌数据存储在 `data/` 目录下，包含简体和繁体两个版本：
+## 项目结构
 
-- `唐诗三百首.json`：简体中文版（默认）
-- `唐诗三百首_繁体.json`：繁體中文版
-
-可在侧边栏「设置」中切换简繁体。如果本地数据不可用，应用将尝试从公共 API 加载数据，或使用内置的示例数据作为后备方案。
+```text
+poems/
+├── app.py                         # 主 Streamlit 应用
+├── pyproject.toml                 # 项目配置、依赖和 ruff 设置
+├── uv.lock                        # uv 锁定文件
+├── src/
+│   ├── analytics.py               # 学习分析
+│   ├── data_loader.py             # 诗词库加载、简繁切换和扩展库合并
+│   ├── flashcards.py              # 闪卡状态、进度持久化、导入导出
+│   ├── poem_corpus_lookup.py      # 本地诗库检索辅助
+│   ├── poem_explanations_store.py # 本地释义缓存读写
+│   ├── poem_web_supplement.py     # 智谱联网搜诗和扩展库写入
+│   ├── quiz.py                    # 测验逻辑
+│   ├── stroke_order.py            # 笔画和笔顺数据读取
+│   ├── stroke_widget.py           # 交互式笔顺组件
+│   └── zhipu_glm.py               # 智谱 GLM 客户端封装
+├── scripts/
+│   ├── build_song_ci_database.py
+│   ├── convert_to_simplified.py
+│   ├── gather_poem_explanations.py
+│   ├── gather_poems.py
+│   └── remove_duplicates.py
+├── data/
+└── README.md
+```
 
 ## 开发
 
-### 添加新功能
-
-- 修改 `app.py` 添加新的页面或功能
-- 在 `src/` 目录下添加新的模块
-- 更新 `pyproject.toml` 添加新的依赖
-
-### 运行测试
+格式化 Python 代码：
 
 ```bash
-uv run pytest  # 如果添加了测试
+uv run ruff format
+```
+
+检查 lint：
+
+```bash
+uv run ruff check
+```
+
+当前仓库没有专门的测试目录；添加测试后可使用：
+
+```bash
+uv run pytest
 ```
 
 ## 许可证
 
 本项目仅供学习和教育用途。
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
 
