@@ -739,16 +739,9 @@ _JS = """\
 
   /* "Show All Strokes": thumbnail grid + full-poem stroke playback */
   document.getElementById('showAllStrokesBtn').addEventListener('click', function() {
-    /* Collect unique CJK chars in document order */
-    var chars = [];
-    var seen = {};
-    document.querySelectorAll('.stroke-char').forEach(function(span) {
-      var ch = span.getAttribute('data-char');
-      if (!seen[ch] && STROKE_DATA[ch]) { seen[ch] = true; chars.push(ch); }
-    });
+    /* Poem order, including repeated characters (e.g. 渡 in 争渡喧) */
+    var chars = collectPoemStrokeCharsInOrder();
     if (!chars.length) return;
-
-    var charsPoemOrder = collectPoemStrokeCharsInOrder();
 
     poemPlaybackActive = false;
     clearPoemBetweenTimer();
@@ -758,7 +751,7 @@ _JS = """\
 
     document.getElementById('strokeModalTitle').textContent = '全部笔顺';
     document.getElementById('strokeModalSubtitle').textContent =
-      '共 ' + chars.length + ' 个汉字';
+      '共 ' + chars.length + ' 字（按诗序，含重复）';
 
     modal.style.width  = '88vw';
     modal.style.height = 'auto';
@@ -778,7 +771,7 @@ _JS = """\
       var header = document.createElement('div');
       header.className = 'char-section-header';
       header.innerHTML = ch + '<span class="char-count">'
-        + strokes.length + ' 画</span>';
+        + '第 ' + (ci + 1) + ' 字 · ' + strokes.length + ' 画</span>';
       section.appendChild(header);
 
       var subgrid = document.createElement('div');
@@ -799,9 +792,7 @@ _JS = """\
     expandFrame();
     overlay.classList.add('open');
 
-    if (charsPoemOrder.length) {
-      runPoemStrokePlayback(charsPoemOrder);
-    }
+    runPoemStrokePlayback(chars);
 
     /* Restore grid display on close so single-char view works again */
     var origClose = closeModal;
@@ -823,8 +814,8 @@ def render_poem_with_strokes(content: str) -> str:
 
     Each CJK character is interactive: double-click opens a modal showing
     progressive stroke order (if data is available). 「全部笔顺」lists each
-    distinct character’s steps and plays strokes through the poem in reading
-    order (including repeats).
+    character occurrence’s steps in reading order (including repeats) and
+    plays strokes through the poem the same way.
     Pinyin annotations (including all heteronym readings) are shown above each
     character.
     """
